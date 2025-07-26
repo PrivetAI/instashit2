@@ -21,27 +21,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Chrome Browser for Puppeteer
-  chrome:
-    image: browserless/chrome:latest
-    container_name: instagram_scraper_chrome
-    restart: unless-stopped
-    ports:
-      - "9222:3000"
-    environment:
-      - CONNECTION_TIMEOUT=60000
-      - MAX_CONCURRENT_SESSIONS=1
-      - ENABLE_DEBUGGER=true
-      - CHROME_REFRESH_TIME=86400000
-    shm_size: 1gb
-    volumes:
-      - /dev/shm:/dev/shm
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/json"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
   # Application
   app:
     build:
@@ -52,18 +31,18 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/instagram_scraper
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - CHROME_DEBUG_PORT=9222
-      - CHROME_DEBUG_HOST=chrome
+      - CHROME_DEBUG_HOST=host.docker.internal  # Connect to host machine's Chrome
     depends_on:
       postgres:
         condition: service_healthy
-      chrome:
-        condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Enable host access from container
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s

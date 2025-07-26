@@ -8,9 +8,15 @@ export class InstagramScraper {
 
   async connect(port: number = 9222): Promise<boolean> {
     try {
+      // Get Chrome host from environment or default to localhost
+      const chromeHost = process.env.CHROME_DEBUG_HOST || 'localhost';
+      const chromeUrl = `http://${chromeHost}:${port}`;
+      
+      console.log(`Connecting to Chrome at ${chromeUrl}`);
+      
       // Connect to existing Chrome instance with debugging enabled
       this.browser = await puppeteer.connect({
-        browserURL: `http://localhost:${port}`,
+        browserURL: chromeUrl,
         defaultViewport: null,
       });
 
@@ -25,6 +31,7 @@ export class InstagramScraper {
       await this.page.setViewport({ width: 1366, height: 768 });
 
       this.isConnected = true;
+      console.log('Successfully connected to Chrome');
       return true;
     } catch (error) {
       console.error('Failed to connect to Chrome:', error);
