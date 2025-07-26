@@ -66,6 +66,12 @@ Target service: Automatic response service for job applications
 - **PostgreSQL Database**: Primary data storage (configurable via DATABASE_URL)
 - **Neon Database**: Serverless PostgreSQL provider integration
 
+### Docker Support
+- **Docker Compose**: Full containerization with PostgreSQL, Chrome browser, and application
+- **Browserless Chrome**: Containerized Chrome for consistent scraping environment
+- **Multi-stage builds**: Optimized Docker images with security considerations
+- **Health checks**: Automated monitoring for all services
+
 ### Key Libraries
 - **AI/ML**: OpenAI SDK, Drizzle-Zod for schema validation
 - **UI/UX**: Radix UI primitives, Tailwind CSS, Lucide icons
