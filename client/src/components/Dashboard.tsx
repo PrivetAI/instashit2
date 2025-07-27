@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import Sidebar from "@/components/Sidebar";
-import VideoCard from "@/components/VideoCard";
+import Sidebar from "@/components/sidebar";
+import VideoCard from "@/components/video-card";
 import ConfirmationModal from "@/components/ConfirmationModal";
 import { useWebSocket } from "@/hooks/use-websocket";
-import { type Video, type ScrapingSession, type ChromeConnection } from "@shared/schema";
-import { Play, Download } from "lucide-react";
+import { type Video, type ScrapingSession, type AndroidConnection } from "@shared/schema";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Play, Download } from "lucide-react";
 
 export default function Dashboard() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [activeSession, setActiveSession] = useState<ScrapingSession | null>(null);
-  const [chromeConnection, setChromeConnection] = useState<ChromeConnection | null>(null);
+  const [androidConnection, setAndroidConnection] = useState<AndroidConnection | null>(null);
   const [confirmationVideo, setConfirmationVideo] = useState<Video | null>(null);
 
   // Fetch initial data
@@ -24,7 +26,7 @@ export default function Dashboard() {
   });
 
   const { data: initialConnection } = useQuery({
-    queryKey: ["/api/chrome/status"],
+    queryKey: ["/api/android/status"],
   });
 
   // WebSocket for real-time updates
@@ -45,9 +47,10 @@ export default function Dashboard() {
           setActiveSession(event.data);
           break;
         case 'connection_status':
-          setChromeConnection(prev => prev ? {
+          setAndroidConnection(prev => prev ? {
             ...prev,
             status: event.data.status,
+            host: event.data.host,
             port: event.data.port,
             errorMessage: event.data.error || null,
           } : null);
@@ -66,7 +69,7 @@ export default function Dashboard() {
   }, [initialSession]);
 
   useEffect(() => {
-    if (initialConnection) setChromeConnection(initialConnection as ChromeConnection);
+    if (initialConnection) setAndroidConnection(initialConnection as AndroidConnection);
   }, [initialConnection]);
 
   const handleApprove = (video: Video) => {
@@ -117,79 +120,74 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   };
 
-  const processedCount = activeSession?.processedCount || 0;
-  const approvedCount = activeSession?.approvedCount || 0;
-  const rejectedCount = activeSession?.rejectedCount || 0;
-  const totalCount = activeSession?.videoCount || 0;
-  const progressPercentage = totalCount > 0 ? Math.round((processedCount / totalCount) * 100) : 0;
+  const stats = {
+    processed: activeSession?.processedCount || 0,
+    approved: activeSession?.approvedCount || 0,
+    rejected: activeSession?.rejectedCount || 0,
+    total: activeSession?.videoCount || 0,
+    progress: activeSession?.videoCount ? 
+      Math.round((activeSession.processedCount || 0) / activeSession.videoCount * 100) : 0
+  };
 
   return (
     <div className="min-h-screen flex bg-gray-50">
       <Sidebar 
-        chromeConnection={chromeConnection}
+        connection={androidConnection}
         activeSession={activeSession}
         onSessionUpdate={setActiveSession}
       />
 
       <div className="flex-1 flex flex-col">
-        {/* Header Bar */}
-        <div className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <h2 className="text-xl font-semibold text-gray-900">Панель анализа</h2>
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b px-6 py-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-semibold">Analysis Panel</h2>
               {activeSession?.status === 'running' && (
-                <div className="flex items-center space-x-2 bg-success/10 px-3 py-1 rounded-full">
-                  <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-                  <span className="text-sm font-medium text-success">Скрапинг активен</span>
-                </div>
+                <Badge variant="default" className="animate-pulse">
+                  Scraping Active
+                </Badge>
               )}
             </div>
             
-            <div className="flex items-center space-x-4">
-              {/* Progress Stats */}
-              <div className="flex items-center space-x-6 text-sm">
-                <div className="text-center">
-                  <div className="font-semibold text-gray-900">{processedCount}</div>
-                  <div className="text-gray-500">Обработано</div>
-                </div>
-                <div className="text-center">
-                  <div className="font-semibold text-success">{approvedCount}</div>
-                  <div className="text-gray-500">Одобрено</div>
-                </div>
-                <div className="text-center">
-                  <div className="font-semibold text-error">{rejectedCount}</div>
-                  <div className="text-gray-500">Отклонено</div>
-                </div>
-              </div>
-              
-              <Button onClick={handleExport} variant="outline" size="sm">
-                <Download className="h-4 w-4 mr-2" />
-                Экспорт
-              </Button>
+            <Button onClick={handleExport} variant="outline" size="sm">
+              <Download className="h-3 w-3 mr-1" />
+              Export
+            </Button>
+          </div>
+          
+          {/* Stats */}
+          <div className="flex items-center gap-6 text-sm">
+            <div>
+              <span className="text-muted-foreground">Processed:</span>
+              <span className="ml-1 font-medium">{stats.processed}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Approved:</span>
+              <span className="ml-1 font-medium text-success">{stats.approved}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Rejected:</span>
+              <span className="ml-1 font-medium text-destructive">{stats.rejected}</span>
             </div>
           </div>
           
-          {/* Progress Bar */}
-          {totalCount > 0 && (
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600">Прогресс</span>
-                <span className="text-sm text-gray-600">{progressPercentage}%</span>
+          {/* Progress */}
+          {stats.total > 0 && (
+            <div className="mt-3">
+              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                <span>Progress</span>
+                <span>{stats.progress}%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-primary h-2 rounded-full transition-all duration-300" 
-                  style={{ width: `${progressPercentage}%` }}
-                ></div>
-              </div>
+              <Progress value={stats.progress} className="h-2" />
             </div>
           )}
         </div>
 
-        {/* Video Cards Grid */}
+        {/* Content */}
         <div className="flex-1 p-6 overflow-y-auto">
           {videos.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
               {videos.map((video) => (
                 <VideoCard
                   key={video.id}
@@ -200,21 +198,21 @@ export default function Dashboard() {
               ))}
             </div>
           ) : (
-            /* Empty State */
-            <div className="text-center py-12">
+            <div className="text-center py-16">
               <div className="text-6xl mb-4">🎥</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Нет видео для анализа</h3>
-              <p className="text-gray-500 mb-6">Введите поисковый запрос и запустите скрапинг для начала анализа.</p>
-              <Button className="bg-primary hover:bg-blue-700">
-                <Play className="h-4 w-4 mr-2" />
-                Запустить скрапинг
+              <h3 className="text-lg font-medium mb-2">No videos to analyze</h3>
+              <p className="text-muted-foreground mb-6">
+                Enter a search query and start scraping to analyze reels
+              </p>
+              <Button>
+                <Play className="h-3 w-3 mr-1" />
+                Start Scraping
               </Button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Confirmation Modal */}
       <ConfirmationModal
         video={confirmationVideo}
         onConfirm={handleConfirmPost}
