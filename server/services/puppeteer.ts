@@ -28,7 +28,7 @@ export class InstagramScraper {
       );
 
       // Set viewport to realistic size
-      await this.page.setViewport({ width: 1366, height: 768 });
+      await this.page.setViewport({ width: 1440, height: 960 });
 
       this.isConnected = true;
       console.log('Successfully connected to Chrome');

@@ -28,14 +28,15 @@ services:
       dockerfile: Dockerfile
     container_name: instagram_scraper_app_dev
     restart: unless-stopped
+    network_mode: "host"
     ports:
       - "5000:5000"  # Express server
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/instagram_scraper
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - CHROME_DEBUG_PORT=9222
-      - CHROME_DEBUG_HOST=host.docker.internal  # Connect to host Chrome
+      - CHROME_DEBUG_PORT=${CHROME_DEBUG_PORT}
+      - CHROME_DEBUG_HOST=${CHROME_DEBUG_HOST}  # Connect to host Chrome
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,8 +48,6 @@ services:
       - ./uploads:/app/uploads
       # Исключаем node_modules
       - /app/node_modules
-    extra_hosts:
-      - "host.docker.internal:host-gateway"  # Enable host access from container
     stdin_open: true
     tty: true
     healthcheck:
