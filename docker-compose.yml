@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:15
     container_name: instagram_scraper_db_dev
@@ -21,32 +18,74 @@ services:
       timeout: 5s
       retries: 5
 
-  # Application в режиме разработки
+  android:
+    image: budtmo/docker-android:emulator_11.0
+    container_name: android_emulator
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "6080:6080"
+      - "4723:4723"
+      - "5554:5554" 
+      - "5555:5555"
+    environment:
+      - EMULATOR_DEVICE=Samsung Galaxy S10
+      - WEB_VNC=true
+      - APPIUM=true
+      - RELAXED_SECURITY=true
+      - DATAPARTITION=1024m
+      - AUTO_RECORD=false
+      - CONNECT_TO_GRID=false
+      - MOBILE_WEB_TEST=false
+      - LOG_WEB_SHARED=false
+    volumes:
+      - ./apks:/apks
+      - android_data:/home/androidusr
+    devices:
+      - /dev/kvm:/dev/kvm
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:6080 && adb devices | grep -q emulator"]
+      interval: 60s
+      timeout: 20s
+      retries: 10
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    shm_size: 2g
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: instagram_scraper_app_dev
     restart: unless-stopped
-    network_mode: "host"
     ports:
-      - "5000:5000"  # Express server
+      - "5000:5000"
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/instagram_scraper
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - CHROME_DEBUG_PORT=${CHROME_DEBUG_PORT}
-      - CHROME_DEBUG_HOST=${CHROME_DEBUG_HOST}  # Connect to host Chrome
+      - ANDROID_HOST=android
+      - ANDROID_PORT=4723
     depends_on:
       postgres:
         condition: service_healthy
+      android:
+        condition: service_started
     volumes:
-      # Монтируем исходный код для hot reload
       - ./client:/app/client
       - ./server:/app/server
       - ./shared:/app/shared
       - ./uploads:/app/uploads
-      # Исключаем node_modules
       - /app/node_modules
     stdin_open: true
     tty: true
@@ -58,7 +97,7 @@ services:
 
 volumes:
   postgres_data_dev:
-    driver: local
+  android_data:
 
 networks:
   default:

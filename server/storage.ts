@@ -5,8 +5,8 @@ import {
   type InsertScrapingSession,
   type SystemPrompt,
   type InsertSystemPrompt,
-  type ChromeConnection,
-  type InsertChromeConnection
+  type AndroidConnection,
+  type InsertAndroidConnection
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -31,16 +31,16 @@ export interface IStorage {
   createSystemPrompt(prompt: InsertSystemPrompt): Promise<SystemPrompt>;
   updateSystemPrompt(id: string, updates: Partial<SystemPrompt>): Promise<SystemPrompt | undefined>;
 
-  // Chrome connection operations
-  getChromeConnection(): Promise<ChromeConnection | undefined>;
-  updateChromeConnection(updates: Partial<ChromeConnection>): Promise<ChromeConnection>;
+  // Android connection operations
+  getAndroidConnection(): Promise<AndroidConnection | undefined>;
+  updateAndroidConnection(updates: Partial<AndroidConnection>): Promise<AndroidConnection>;
 }
 
 export class MemStorage implements IStorage {
   private videos: Map<string, Video> = new Map();
   private scrapingSessions: Map<string, ScrapingSession> = new Map();
   private systemPrompts: Map<string, SystemPrompt> = new Map();
-  private chromeConnection: ChromeConnection | undefined;
+  private androidConnection: AndroidConnection | undefined;
 
   constructor() {
     // Initialize default system prompts
@@ -69,11 +69,12 @@ export class MemStorage implements IStorage {
     this.systemPrompts.set(analysisPrompt.id, analysisPrompt);
     this.systemPrompts.set(commentPrompt.id, commentPrompt);
 
-    // Initialize chrome connection
-    this.chromeConnection = {
+    // Initialize android connection
+    this.androidConnection = {
       id: randomUUID(),
       status: "disconnected",
-      port: 9222,
+      host: "localhost",
+      port: 4723,
       lastConnected: null,
       errorMessage: null,
       updatedAt: new Date(),
@@ -215,29 +216,30 @@ export class MemStorage implements IStorage {
     return updatedPrompt;
   }
 
-  // Chrome connection operations
-  async getChromeConnection(): Promise<ChromeConnection | undefined> {
-    return this.chromeConnection;
+  // Android connection operations
+  async getAndroidConnection(): Promise<AndroidConnection | undefined> {
+    return this.androidConnection;
   }
 
-  async updateChromeConnection(updates: Partial<ChromeConnection>): Promise<ChromeConnection> {
-    if (!this.chromeConnection) {
-      this.chromeConnection = {
+  async updateAndroidConnection(updates: Partial<AndroidConnection>): Promise<AndroidConnection> {
+    if (!this.androidConnection) {
+      this.androidConnection = {
         id: randomUUID(),
         status: "disconnected",
-        port: 9222,
+        host: "localhost",
+        port: 4723,
         lastConnected: null,
         errorMessage: null,
         updatedAt: new Date(),
       };
     }
 
-    this.chromeConnection = {
-      ...this.chromeConnection,
+    this.androidConnection = {
+      ...this.androidConnection,
       ...updates,
       updatedAt: new Date(),
     };
-    return this.chromeConnection;
+    return this.androidConnection;
   }
 }
 

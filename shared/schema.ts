@@ -44,10 +44,11 @@ export const systemPrompts = pgTable("system_prompts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const chromeConnection = pgTable("chrome_connection", {
+export const androidConnection = pgTable("android_connection", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   status: text("status").notNull().default("disconnected"), // connected, disconnected, error
-  port: integer("port").default(9222),
+  host: text("host").default("localhost"),
+  port: integer("port").default(4723),
   lastConnected: timestamp("last_connected"),
   errorMessage: text("error_message"),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -71,7 +72,7 @@ export const insertSystemPromptSchema = createInsertSchema(systemPrompts).omit({
   updatedAt: true,
 });
 
-export const insertChromeConnectionSchema = createInsertSchema(chromeConnection).omit({
+export const insertAndroidConnectionSchema = createInsertSchema(androidConnection).omit({
   id: true,
   updatedAt: true,
 });
@@ -82,13 +83,13 @@ export type ScrapingSession = typeof scrapingSessions.$inferSelect;
 export type InsertScrapingSession = z.infer<typeof insertScrapingSessionSchema>;
 export type SystemPrompt = typeof systemPrompts.$inferSelect;
 export type InsertSystemPrompt = z.infer<typeof insertSystemPromptSchema>;
-export type ChromeConnection = typeof chromeConnection.$inferSelect;
-export type InsertChromeConnection = z.infer<typeof insertChromeConnectionSchema>;
+export type AndroidConnection = typeof androidConnection.$inferSelect;
+export type InsertAndroidConnection = z.infer<typeof insertAndroidConnectionSchema>;
 
 // WebSocket event types
 export type WebSocketEvent = 
   | { type: 'video_updated'; data: Video }
   | { type: 'session_updated'; data: ScrapingSession }
-  | { type: 'connection_status'; data: { status: string; port: number; error?: string } }
+  | { type: 'connection_status'; data: { status: string; host?: string; port: number; error?: string } }
   | { type: 'scraping_progress'; data: { processed: number; total: number; current?: Video } }
   | { type: 'error'; data: { message: string; details?: any } };
