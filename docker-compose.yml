@@ -31,12 +31,14 @@ services:
       - "5554:5554"
       - "5555:5555"
     environment:
-      - EMULATOR_DEVICE=Samsung Galaxy S10
+      - EMULATOR_DEVICE=Nexus 5
       - WEB_VNC=true
       - APPIUM=true
       - DEVICE_NAME=emulator-5554
-      - DATAPARTITION=2g
-      - EMULATOR_ARGS="-no-snapshot-save -noaudio -no-boot-anim"
+      - DATAPARTITION=4g
+      - EMULATOR_ARGS=-no-snapshot-save -noaudio -no-boot-anim
+
+
     volumes:
       - ./apks:/apks
       - android_data:/data
@@ -55,7 +57,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANDROID_HOST=android
       - ANDROID_PORT=4723
-      - ANDROID_DEVICE_NAME=Samsung Galaxy S10
+      - ANDROID_DEVICE_NAME=Nexus 5
     depends_on:
       postgres:
         condition: service_healthy

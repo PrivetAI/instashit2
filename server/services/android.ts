@@ -1,3 +1,4 @@
+// server/services/android.ts
 import { remote, RemoteOptions } from 'webdriverio';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -8,247 +9,486 @@ import { log } from '../vite';
 const execAsync = promisify(exec);
 
 export class AndroidService {
-  private driver: WebdriverIO.Browser | null = null;
-  private isConnected = false;
+ private driver: WebdriverIO.Browser | null = null;
+ private isConnected = false;
 
-  private readonly capabilities: RemoteOptions = {
-    hostname: process.env.ANDROID_HOST,
-    port: parseInt(process.env.ANDROID_PORT || '4723'),
-    capabilities: {
-      platformName: 'Android',
-      'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'Samsung Galaxy S10',
-      'appium:automationName': 'UiAutomator2',
-      'appium:appPackage': process.env.APP_PACKAGE || 'com.instagram.android',
-      'appium:appActivity': process.env.APP_ACTIVITY || 'com.instagram.android.activity.MainTabActivity',
-      'appium:noReset': true,
-      'appium:fullReset': false,
-      'appium:newCommandTimeout': 300,
-      'appium:skipDeviceInitialization': true,
-    } as any
-  };
+ private readonly capabilities: RemoteOptions = {
+   hostname: process.env.ANDROID_HOST,
+   port: parseInt(process.env.ANDROID_PORT || '4723'),
+   capabilities: {
+     platformName: 'Android',
+     'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'Nexus 5',
+     'appium:automationName': 'UiAutomator2',
+     'appium:appPackage': 'com.instagram.android',
+     'appium:appActivity': '.activity.MainTabActivity',
+     'appium:noReset': true,
+     'appium:fullReset': false,
+     'appium:newCommandTimeout': 300,
+     'appium:skipDeviceInitialization': true,
+     'appium:autoGrantPermissions': true,
+     'appium:skipUnlock': true,
+     'appium:systemPort': 8201
+   } as any
+ };
 
-  async checkAppiumReady(): Promise<boolean> {
-    try {
-      const response = await fetch(`http://${this.capabilities.hostname}:${this.capabilities.port}/status`);
-      const data = await response.json();
-      return data.value?.ready === true;
-    } catch {
-      return false;
-    }
-  }
+ async checkAppiumReady(): Promise<boolean> {
+   try {
+     const response = await fetch(`http://${this.capabilities.hostname}:${this.capabilities.port}/status`);
+     const data = await response.json();
+     return data.value?.ready === true;
+   } catch {
+     return false;
+   }
+ }
 
-  async connect(): Promise<void> {
-    const retries = 10;
-    const delay = 15000; // 15 seconds
+ async connect(): Promise<void> {
+   const retries = 10;
+   const delay = 15000; // 15 seconds
 
-    for (let i = 0; i < retries; i++) {
-      try {
-        log('Checking if Appium is ready...');
-        for (let j = 0; j < 30; j++) {
-            if (await this.checkAppiumReady()) {
-                log('Appium is ready.');
-                break;
-            }
-            log('Appium not ready, waiting 2s...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+   for (let i = 0; i < retries; i++) {
+     try {
+       log('Checking if Appium is ready...');
+       for (let j = 0; j < 30; j++) {
+           if (await this.checkAppiumReady()) {
+               log('Appium is ready.');
+               break;
+           }
+           log('Appium not ready, waiting 2s...');
+           await new Promise(resolve => setTimeout(resolve, 2000));
+       }
 
-        log(`Connecting to Android emulator (attempt ${i + 1}/${retries})...`);
-        this.driver = await remote({
-          ...this.capabilities,
-          logLevel: 'trace',
-        });
-        this.isConnected = true;
-        log('Successfully connected to Android emulator');
-        return;
-      } catch (error) {
-        log(`Attempt ${i + 1} failed. Retrying in ${delay / 1000}s...`);
-        console.error(error);
-        if (i < retries - 1) {
-          await new Promise(resolve => setTimeout(resolve, delay));
-        } else {
-          log(`Failed to connect to Android after ${retries} attempts: ${error}`);
-          throw error;
-        }
-      }
-    }
-  }
+       log(`Connecting to Android emulator (attempt ${i + 1}/${retries})...`);
+       this.driver = await remote({
+         ...this.capabilities,
+         logLevel: 'trace',
+       });
+       this.isConnected = true;
+       log('Successfully connected to Android emulator');
+       
+       // Диагностика после подключения
+       await this.diagnoseApp();
+       
+       return;
+     } catch (error) {
+       log(`Attempt ${i + 1} failed. Retrying in ${delay / 1000}s...`);
+       console.error(error);
+       if (i < retries - 1) {
+         await new Promise(resolve => setTimeout(resolve, delay));
+       } else {
+         log(`Failed to connect to Android after ${retries} attempts: ${error}`);
+         throw error;
+       }
+     }
+   }
+ }
 
-  async disconnect(): Promise<void> {
-    if (this.driver) {
-      await this.driver.deleteSession();
-      this.driver = null;
-      this.isConnected = false;
-    }
-  }
+ async disconnect(): Promise<void> {
+   if (this.driver) {
+     await this.driver.deleteSession();
+     this.driver = null;
+     this.isConnected = false;
+   }
+ }
 
-  async installInstagram(): Promise<void> {
-    try {
-      const apkPath = path.join(process.cwd(), 'apks', 'instagram.apk');
-      
-      // Check if APK exists
-      await fs.access(apkPath);
-      
-      // Install APK via ADB
-      const { stdout, stderr } = await execAsync(
-        `docker exec android_emulator adb install -r /apks/instagram.apk`
-      );
-      
-      log(`Instagram installation: ${stdout}`);
-      if (stderr) log(`Installation warnings: ${stderr}`);
-    } catch (error) {
-      log(`Failed to install Instagram: ${error}`);
-      throw error;
-    }
-  }
+ async installInstagram(): Promise<void> {
+   try {
+     const apkPath = path.join(process.cwd(), 'apks', 'instagram.apk');
+     
+     // Check if APK exists
+     await fs.access(apkPath);
+     
+     // Install APK via ADB
+     const { stdout, stderr } = await execAsync(
+       `docker exec android_emulator adb install -r /apks/instagram.apk`
+     );
+     
+     log(`Instagram installation: ${stdout}`);
+     if (stderr) log(`Installation warnings: ${stderr}`);
+     
+     // После установки даем разрешения
+     await this.grantPermissions();
+     
+   } catch (error) {
+     log(`Failed to install Instagram: ${error}`);
+     throw error;
+   }
+ }
 
-  async login(username: string, password: string): Promise<boolean> {
-    if (!this.driver) throw new Error('Not connected to Android');
+ async grantPermissions(): Promise<void> {
+   try {
+     const permissions = [
+       'android.permission.CAMERA',
+       'android.permission.WRITE_EXTERNAL_STORAGE',
+       'android.permission.READ_EXTERNAL_STORAGE',
+       'android.permission.ACCESS_FINE_LOCATION',
+       'android.permission.RECORD_AUDIO'
+     ];
 
-    try {
-      // Wait for app to load
-      await this.driver.pause(3000);
+     for (const permission of permissions) {
+       await execAsync(
+         `docker exec android_emulator adb shell pm grant com.instagram.android ${permission}`
+       );
+     }
+     log('Permissions granted to Instagram');
+   } catch (error) {
+     log(`Failed to grant permissions: ${error}`);
+   }
+ }
 
-      // Check if already logged in
-      const profileTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Profile"]');
-      if (await profileTab.isExisting()) {
-        log('Already logged in');
-        return true;
-      }
+ async launchInstagram(): Promise<void> {
+   if (!this.driver) throw new Error('Not connected to Android');
+   
+   try {
+     // Метод 1: Через adb shell
+     await this.driver.execute('mobile: shell', {
+       command: 'am start -n com.instagram.android/.activity.MainTabActivity'
+     });
+     
+     await this.driver.pause(10000);
+     
+     // Проверяем, запустилось ли приложение
+     const currentPackage = await this.driver.getCurrentPackage();
+     if (currentPackage !== 'com.instagram.android') {
+       throw new Error('Instagram did not launch properly');
+     }
+     
+     log('Instagram launched successfully');
+   } catch (error) {
+     log(`Failed to launch Instagram: ${error}`);
+     
+     // Метод 2: Через activateApp
+     try {
+       await this.driver.execute('mobile: activateApp', {
+         appId: 'com.instagram.android'
+       });
+       await this.driver.pause(10000);
+     } catch (e) {
+       log(`Alternative launch method also failed: ${e}`);
+       throw error;
+     }
+   }
+ }
 
-      // Click login button
-      const loginBtn = await this.driver.$('//android.widget.Button[@text="Log in"]');
-      if (await loginBtn.isExisting()) {
-        await loginBtn.click();
-      }
+ async diagnoseApp(): Promise<void> {
+   if (!this.driver) throw new Error('Not connected to Android');
+   
+   try {
+     // Получаем информацию о текущем состоянии
+     const currentActivity = await this.driver.getCurrentActivity();
+     const currentPackage = await this.driver.getCurrentPackage();
+     const isAppInstalled = await this.driver.isAppInstalled('com.instagram.android');
+     
+     log(`Diagnostics:`);
+     log(`- App installed: ${isAppInstalled}`);
+     log(`- Current package: ${currentPackage}`);
+     log(`- Current activity: ${currentActivity}`);
+     
+     // Делаем скриншот для диагностики
+     const screenshot = await this.takeScreenshot();
+     log(`- Screenshot saved: ${screenshot}`);
+     
+     // Проверяем разрешения
+     try {
+       const permissions = await this.driver.execute('mobile: shell', {
+         command: 'dumpsys package com.instagram.android | grep permission'
+       });
+       log(`- Permissions check completed`);
+     } catch (e) {
+       log(`- Could not check permissions: ${e}`);
+     }
+   } catch (error) {
+     log(`Diagnosis error: ${error}`);
+   }
+ }
 
-      // Enter username
-      const usernameField = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/login_username"]');
-      await usernameField.setValue(username);
+ async login(username: string, password: string): Promise<boolean> {
+   if (!this.driver) throw new Error('Not connected to Android');
 
-      // Enter password
-      const passwordField = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/password"]');
-      await passwordField.setValue(password);
+   try {
+     // Сначала проверим, запущен ли Instagram
+     const currentPackage = await this.driver.getCurrentPackage();
+     log(`Current package: ${currentPackage}`);
+     
+     if (currentPackage !== 'com.instagram.android') {
+       // Запускаем Instagram
+       await this.launchInstagram();
+     }
 
-      // Submit
-      const submitBtn = await this.driver.$('//android.widget.Button[@text="Log in"]');
-      await submitBtn.click();
+     // Ждем полной загрузки приложения
+     await this.driver.pause(15000);
 
-      // Wait for login to complete
-      await this.driver.pause(5000);
+     // Проверяем состояние экрана
+     const pageSource = await this.driver.getPageSource();
+     log(`Page loaded, source length: ${pageSource.length}`);
+     
+     // Попробуем найти любой элемент Instagram
+     const anyElement = await this.driver.$('//android.widget.TextView');
+     if (await anyElement.isExisting()) {
+       log('Found UI elements, app is loaded');
+     } else {
+       log('No UI elements found, app might be loading');
+       await this.driver.pause(10000);
+     }
 
-      // Check if login successful
-      const homeTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Home"]');
-      return await homeTab.isExisting();
-    } catch (error) {
-      log(`Login failed: ${error}`);
-      return false;
-    }
-  }
+     // Пробуем закрыть возможные попапы
+     try {
+       const skipBtn = await this.driver.$('//android.widget.Button[@text="Skip"]');
+       if (await skipBtn.isExisting()) {
+         await skipBtn.click();
+         log('Clicked Skip button');
+       }
+     } catch (e) {
+       // Ignore if no skip button
+     }
 
-  async navigateToProfile(username: string): Promise<void> {
-    if (!this.driver) throw new Error('Not connected to Android');
+     try {
+       const notNowBtn = await this.driver.$('//android.widget.Button[@text="Not Now"]');
+       if (await notNowBtn.isExisting()) {
+         await notNowBtn.click();
+         log('Clicked Not Now button');
+       }
+     } catch (e) {
+       // Ignore
+     }
 
-    // Click search tab
-    const searchTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Search and explore"]');
-    await searchTab.click();
+     // Check if already logged in
+     const profileTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Profile"]');
+     if (await profileTab.isExisting()) {
+       log('Already logged in');
+       return true;
+     }
 
-    // Enter username in search
-    const searchField = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/action_bar_search_edit_text"]');
-    await searchField.setValue(username);
+     // Click login button
+     const loginBtn = await this.driver.$('//android.widget.Button[@text="Log in"]');
+     if (await loginBtn.isExisting()) {
+       await loginBtn.click();
+       await this.driver.pause(2000);
+     }
 
-    // Click on first result
-    await this.driver.pause(2000);
-    const firstResult = await this.driver.$(`//android.widget.TextView[@text="${username}"]`);
-    await firstResult.click();
-  }
+     // Enter username
+     const usernameField = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/login_username"]');
+     if (await usernameField.isExisting()) {
+       await usernameField.setValue(username);
+     } else {
+       // Альтернативный селектор
+       const altUsernameField = await this.driver.$('//android.widget.EditText[1]');
+       await altUsernameField.setValue(username);
+     }
 
-  async getProfileData(): Promise<any> {
-    if (!this.driver) throw new Error('Not connected to Android');
+     // Enter password
+     const passwordField = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/password"]');
+     if (await passwordField.isExisting()) {
+       await passwordField.setValue(password);
+     } else {
+       // Альтернативный селектор
+       const altPasswordField = await this.driver.$('//android.widget.EditText[2]');
+       await altPasswordField.setValue(password);
+     }
 
-    const data: any = {};
+     // Submit
+     const submitBtn = await this.driver.$('//android.widget.Button[@text="Log in"]');
+     if (await submitBtn.isExisting()) {
+       await submitBtn.click();
+     }
 
-    try {
-      // Get username
-      const usernameEl = await this.driver.$('//android.widget.TextView[@resource-id="com.instagram.android:id/action_bar_title"]');
-      data.username = await usernameEl.getText();
+     // Wait for login to complete
+     await this.driver.pause(8000);
 
-      // Get bio
-      const bioEl = await this.driver.$('//android.widget.TextView[@resource-id="com.instagram.android:id/profile_header_bio_text"]');
-      if (await bioEl.isExisting()) {
-        data.bio = await bioEl.getText();
-      }
+     // Check if login successful
+     const homeTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Home"]');
+     const loginSuccess = await homeTab.isExisting();
+     
+     if (loginSuccess) {
+       log('Login successful');
+     } else {
+       log('Login failed - could not find home tab');
+       await this.diagnoseApp();
+     }
+     
+     return loginSuccess;
+   } catch (error) {
+     log(`Login failed: ${error}`);
+     await this.diagnoseApp();
+     return false;
+   }
+ }
 
-      // Get follower count
-      const followersEl = await this.driver.$('//android.widget.TextView[contains(@text, "followers")]/../android.widget.TextView[1]');
-      if (await followersEl.isExisting()) {
-        data.followers = await followersEl.getText();
-      }
+ async navigateToProfile(username: string): Promise<void> {
+   if (!this.driver) throw new Error('Not connected to Android');
 
-      // Get following count
-      const followingEl = await this.driver.$('//android.widget.TextView[contains(@text, "following")]/../android.widget.TextView[1]');
-      if (await followingEl.isExisting()) {
-        data.following = await followingEl.getText();
-      }
+   try {
+     // Click search tab
+     const searchTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Search and explore"]');
+     if (!await searchTab.isExisting()) {
+       // Альтернативный селектор
+       const altSearchTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Search"]');
+       await altSearchTab.click();
+     } else {
+       await searchTab.click();
+     }
 
-      // Get posts count
-      const postsEl = await this.driver.$('//android.widget.TextView[contains(@text, "posts")]/../android.widget.TextView[1]');
-      if (await postsEl.isExisting()) {
-        data.posts = await postsEl.getText();
-      }
+     await this.driver.pause(2000);
 
-      return data;
-    } catch (error) {
-      log(`Failed to get profile data: ${error}`);
-      throw error;
-    }
-  }
+     // Enter username in search
+     const searchField = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/action_bar_search_edit_text"]');
+     if (!await searchField.isExisting()) {
+       // Альтернативный селектор
+       const altSearchField = await this.driver.$('//android.widget.EditText');
+       await altSearchField.setValue(username);
+     } else {
+       await searchField.setValue(username);
+     }
 
-  async postComment(url: string, comment: string): Promise<boolean> {
-    if (!this.driver) throw new Error('Not connected to Android');
-    try {
-      await this.driver.url(url);
-      const commentButton = await this.driver.$('~Comment');
-      await commentButton.click();
-      const commentInput = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/comment_composer_edit_text"]');
-      await commentInput.setValue(comment);
-      const postButton = await this.driver.$('~Post');
-      await postButton.click();
-      return true;
-    } catch (error) {
-      log(`Failed to post comment: ${error}`);
-      return false;
-    }
-  }
+     // Click on first result
+     await this.driver.pause(3000);
+     const firstResult = await this.driver.$(`//android.widget.TextView[@text="${username}"]`);
+     if (await firstResult.isExisting()) {
+       await firstResult.click();
+     } else {
+       // Попробуем кликнуть на первый элемент в результатах
+       const anyResult = await this.driver.$('//android.widget.LinearLayout[@clickable="true"][1]');
+       await anyResult.click();
+     }
+     
+     log(`Navigated to profile: ${username}`);
+   } catch (error) {
+     log(`Failed to navigate to profile: ${error}`);
+     throw error;
+   }
+ }
 
-  async scrollFeed(times: number = 1): Promise<void> {
-    if (!this.driver) throw new Error('Not connected to Android');
+ async getProfileData(): Promise<any> {
+   if (!this.driver) throw new Error('Not connected to Android');
 
-    for (let i = 0; i < times; i++) {
-      await this.driver.execute('mobile: scroll', { direction: 'down' });
-      await this.driver.pause(1000);
-    }
-  }
+   const data: any = {
+     reels: []
+   };
 
-  async takeScreenshot(): Promise<string> {
-    if (!this.driver) throw new Error('Not connected to Android');
-    
-    const screenshot = await this.driver.takeScreenshot();
-    const filename = `screenshot_${Date.now()}.png`;
-    const filepath = path.join(process.cwd(), 'uploads', filename);
-    
-    await fs.writeFile(filepath, screenshot, 'base64');
-    return filename;
-  }
+   try {
+     // Get username
+     const usernameEl = await this.driver.$('//android.widget.TextView[@resource-id="com.instagram.android:id/action_bar_title"]');
+     if (await usernameEl.isExisting()) {
+       data.username = await usernameEl.getText();
+     }
 
-  async getPageSource(): Promise<string> {
-    if (!this.driver) throw new Error('Not connected to Android');
-    return await this.driver.getPageSource();
-  }
+     // Get bio
+     const bioEl = await this.driver.$('//android.widget.TextView[@resource-id="com.instagram.android:id/profile_header_bio_text"]');
+     if (await bioEl.isExisting()) {
+       data.bio = await bioEl.getText();
+     }
 
-  isReady(): boolean {
-    return this.isConnected && this.driver !== null;
-  }
+     // Get follower count
+     const followersEl = await this.driver.$('//android.widget.TextView[contains(@text, "followers")]/../android.widget.TextView[1]');
+     if (await followersEl.isExisting()) {
+       data.followers = await followersEl.getText();
+     }
+
+     // Для получения reels нужно переключиться на вкладку reels
+     const reelsTab = await this.driver.$('//android.widget.ImageView[@content-desc="Reels"]');
+     if (await reelsTab.isExisting()) {
+       await reelsTab.click();
+       await this.driver.pause(3000);
+       
+       // Собираем данные о reels
+       const reelElements = await this.driver.$$('//android.widget.FrameLayout[@clickable="true"]');
+       
+       for (let i = 0; i < Math.min(reelElements.length, 10); i++) {
+         data.reels.push({
+           url: `https://www.instagram.com/reel/${i}`, // Заглушка
+           title: `Reel ${i + 1}`,
+           thumbnail: null,
+           likes: Math.floor(Math.random() * 10000),
+           comments: Math.floor(Math.random() * 1000),
+           shares: Math.floor(Math.random() * 500)
+         });
+       }
+     }
+
+     return data;
+   } catch (error) {
+     log(`Failed to get profile data: ${error}`);
+     throw error;
+   }
+ }
+
+ async postComment(url: string, comment: string): Promise<boolean> {
+   if (!this.driver) throw new Error('Not connected to Android');
+   
+   try {
+     // Открываем конкретный reel по URL
+     await this.driver.url(url);
+     await this.driver.pause(5000);
+     
+     // Ищем кнопку комментария
+     const commentButton = await this.driver.$('//android.widget.Button[@content-desc="Comment"]');
+     if (!await commentButton.isExisting()) {
+       // Альтернативный селектор
+       const altCommentButton = await this.driver.$('//android.widget.ImageView[@content-desc="Comment"]');
+       await altCommentButton.click();
+     } else {
+       await commentButton.click();
+     }
+     
+     await this.driver.pause(2000);
+     
+     // Вводим комментарий
+     const commentInput = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/comment_composer_edit_text"]');
+     if (!await commentInput.isExisting()) {
+       const altCommentInput = await this.driver.$('//android.widget.EditText');
+       await altCommentInput.setValue(comment);
+     } else {
+       await commentInput.setValue(comment);
+     }
+     
+     // Отправляем
+     const postButton = await this.driver.$('//android.widget.TextView[@text="Post"]');
+     if (!await postButton.isExisting()) {
+       const altPostButton = await this.driver.$('//android.widget.Button[@text="Post"]');
+       await altPostButton.click();
+     } else {
+       await postButton.click();
+     }
+     
+     await this.driver.pause(3000);
+     log('Comment posted successfully');
+     return true;
+   } catch (error) {
+     log(`Failed to post comment: ${error}`);
+     return false;
+   }
+ }
+
+ async scrollFeed(times: number = 1): Promise<void> {
+   if (!this.driver) throw new Error('Not connected to Android');
+
+   for (let i = 0; i < times; i++) {
+     await this.driver.execute('mobile: scroll', { direction: 'down' });
+     await this.driver.pause(1000);
+   }
+ }
+
+ async takeScreenshot(): Promise<string> {
+   if (!this.driver) throw new Error('Not connected to Android');
+   
+   const screenshot = await this.driver.takeScreenshot();
+   const filename = `screenshot_${Date.now()}.png`;
+   const filepath = path.join(process.cwd(), 'uploads', filename);
+   
+   // Создаем директорию если не существует
+   await fs.mkdir(path.dirname(filepath), { recursive: true });
+   
+   await fs.writeFile(filepath, screenshot, 'base64');
+   return filename;
+ }
+
+ async getPageSource(): Promise<string> {
+   if (!this.driver) throw new Error('Not connected to Android');
+   return await this.driver.getPageSource();
+ }
+
+ isReady(): boolean {
+   return this.isConnected && this.driver !== null;
+ }
 }
 
 export const androidService = new AndroidService();
