@@ -14,7 +14,6 @@ export class AndroidService {
   private readonly capabilities: RemoteOptions = {
     hostname: process.env.ANDROID_HOST,
     port: parseInt(process.env.ANDROID_PORT || '4723'),
-    path: '/wd/hub',
     capabilities: {
       platformName: 'Android',
       'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'Nexus 5',
@@ -28,12 +27,32 @@ export class AndroidService {
     } as any
   };
 
+  async checkAppiumReady(): Promise<boolean> {
+    try {
+      const response = await fetch(`http://${this.capabilities.hostname}:${this.capabilities.port}/status`);
+      const data = await response.json();
+      return data.value?.ready === true;
+    } catch {
+      return false;
+    }
+  }
+
   async connect(): Promise<void> {
     const retries = 10;
     const delay = 15000; // 15 seconds
 
     for (let i = 0; i < retries; i++) {
       try {
+        log('Checking if Appium is ready...');
+        for (let j = 0; j < 30; j++) {
+            if (await this.checkAppiumReady()) {
+                log('Appium is ready.');
+                break;
+            }
+            log('Appium not ready, waiting 2s...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
         log(`Connecting to Android emulator (attempt ${i + 1}/${retries})...`);
         this.driver = await remote({
           ...this.capabilities,

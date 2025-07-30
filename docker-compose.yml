@@ -19,7 +19,7 @@ services:
       retries: 5
 
   android:
-    image: budtmo/docker-android:emulator_10.0
+    image: budtmo/docker-android:emulator_13.0
     container_name: android_emulator
     privileged: true
     restart: unless-stopped
