@@ -19,10 +19,12 @@ services:
       retries: 5
 
   android:
-    image: budtmo/docker-android:emulator_13.0
+    image: budtmo/docker-android:emulator_11.0
     container_name: android_emulator
     privileged: true
     restart: unless-stopped
+    devices:
+      - /dev/kvm
     ports:
       - "6080:6080"
       - "4723:4723"
@@ -30,12 +32,15 @@ services:
       - "5555:5555"
     environment:
       - EMULATOR_DEVICE=Nexus 5
+      - WEB_VNC=true
       - APPIUM=true
+      - DEVICE_NAME=emulator-5554
+      - DATAPARTITION=2g
+      - EMULATOR_ARGS="-no-snapshot-save -noaudio -no-boot-anim"
     volumes:
       - ./apks:/apks
-      - ./scripts:/scripts
       - android_data:/data
-
+      
   app:
     build:
       context: .
