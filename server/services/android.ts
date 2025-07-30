@@ -14,7 +14,7 @@ export class AndroidService {
   private readonly capabilities: RemoteOptions = {
     hostname: process.env.ANDROID_HOST,
     port: parseInt(process.env.ANDROID_PORT || '4723'),
-    path: '/',
+    path: '/wd/hub',
     capabilities: {
       platformName: 'Android',
       'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'Nexus 5',
