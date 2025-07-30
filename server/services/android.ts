@@ -16,7 +16,7 @@ export class AndroidService {
     port: parseInt(process.env.ANDROID_PORT || '4723'),
     capabilities: {
       platformName: 'Android',
-      'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'Nexus 5',
+      'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'Samsung Galaxy S10',
       'appium:automationName': 'UiAutomator2',
       'appium:appPackage': process.env.APP_PACKAGE || 'com.instagram.android',
       'appium:appActivity': process.env.APP_ACTIVITY || 'com.instagram.android.activity.MainTabActivity',

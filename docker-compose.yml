@@ -31,7 +31,7 @@ services:
       - "5554:5554"
       - "5555:5555"
     environment:
-      - EMULATOR_DEVICE=Nexus 5
+      - EMULATOR_DEVICE=Samsung Galaxy S10
       - WEB_VNC=true
       - APPIUM=true
       - DEVICE_NAME=emulator-5554
@@ -55,7 +55,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANDROID_HOST=android
       - ANDROID_PORT=4723
-      - ANDROID_DEVICE_NAME=Nexus 5
+      - ANDROID_DEVICE_NAME=Samsung Galaxy S10
     depends_on:
       postgres:
         condition: service_healthy
