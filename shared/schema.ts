@@ -72,10 +72,19 @@ export const insertSystemPromptSchema = createInsertSchema(systemPrompts).omit({
   updatedAt: true,
 });
 
-export const insertAndroidConnectionSchema = createInsertSchema(androidConnection).omit({
-  id: true,
-  updatedAt: true,
+export const insertAndroidConnectionSchema = z.object({
+  status: z.enum(['connected', 'disconnected', 'error']),
+  host: z.string().optional(),
+  port: z.number().optional(),
+  lastConnected: z.date().nullable().optional(),
+  errorMessage: z.string().nullable().optional(),
 });
+export const selectAndroidConnectionSchema = insertAndroidConnectionSchema.extend({
+  id: z.string(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
 
 export type Video = typeof videos.$inferSelect;
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
@@ -83,7 +92,8 @@ export type ScrapingSession = typeof scrapingSessions.$inferSelect;
 export type InsertScrapingSession = z.infer<typeof insertScrapingSessionSchema>;
 export type SystemPrompt = typeof systemPrompts.$inferSelect;
 export type InsertSystemPrompt = z.infer<typeof insertSystemPromptSchema>;
-export type AndroidConnection = typeof androidConnection.$inferSelect;
+export type AndroidConnection = z.infer<typeof selectAndroidConnectionSchema>;
+
 export type InsertAndroidConnection = z.infer<typeof insertAndroidConnectionSchema>;
 
 // WebSocket event types
@@ -93,3 +103,4 @@ export type WebSocketEvent =
   | { type: 'connection_status'; data: { status: string; host?: string; port: number; error?: string } }
   | { type: 'scraping_progress'; data: { processed: number; total: number; current?: Video } }
   | { type: 'error'; data: { message: string; details?: any } };
+  

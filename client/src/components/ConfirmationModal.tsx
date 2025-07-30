@@ -1,13 +1,13 @@
 import { type Video } from "@shared/schema";
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  DialogTitle
+} from "./ui/dialog";
 import { AlertTriangle, Send } from "lucide-react";
 
 interface ConfirmationModalProps {

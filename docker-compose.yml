@@ -19,48 +19,23 @@ services:
       retries: 5
 
   android:
-    image: budtmo/docker-android:emulator_11.0
+    image: budtmo/docker-android:emulator_10.0
     container_name: android_emulator
     privileged: true
     restart: unless-stopped
     ports:
       - "6080:6080"
       - "4723:4723"
-      - "5554:5554" 
+      - "5554:5554"
       - "5555:5555"
     environment:
-      - EMULATOR_DEVICE=Samsung Galaxy S10
-      - WEB_VNC=true
+      - EMULATOR_DEVICE=Nexus 5
       - APPIUM=true
-      - RELAXED_SECURITY=true
-      - DATAPARTITION=1024m
-      - AUTO_RECORD=false
-      - CONNECT_TO_GRID=false
-      - MOBILE_WEB_TEST=false
-      - LOG_WEB_SHARED=false
+      - WEB_VNC=true
     volumes:
       - ./apks:/apks
-      - android_data:/home/androidusr
-    devices:
-      - /dev/kvm:/dev/kvm
-    healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:6080 && adb devices | grep -q emulator"]
-      interval: 60s
-      timeout: 20s
-      retries: 10
-      start_period: 300s
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: '2.0'
-        reservations:
-          memory: 2G
-          cpus: '1.0'
-    shm_size: 2g
-    cap_add:
-      - SYS_ADMIN
-      - NET_ADMIN
+      - ./scripts:/scripts
+      - android_data:/data
 
   app:
     build:
@@ -76,6 +51,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANDROID_HOST=android
       - ANDROID_PORT=4723
+      - ANDROID_DEVICE_NAME=Nexus 5
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,11 +65,6 @@ services:
       - /app/node_modules
     stdin_open: true
     tty: true
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
 volumes:
   postgres_data_dev:

@@ -77,6 +77,7 @@ export class MemStorage implements IStorage {
       port: 4723,
       lastConnected: null,
       errorMessage: null,
+      createdAt: new Date(),
       updatedAt: new Date(),
     };
   }
@@ -104,6 +105,7 @@ export class MemStorage implements IStorage {
     const video: Video = {
       ...insertVideo,
       id,
+      status: insertVideo.status || "queued",
       thumbnail: insertVideo.thumbnail ?? null,
       likes: insertVideo.likes ?? null,
       comments: insertVideo.comments ?? null,
@@ -230,6 +232,7 @@ export class MemStorage implements IStorage {
         port: 4723,
         lastConnected: null,
         errorMessage: null,
+        createdAt: new Date(),
         updatedAt: new Date(),
       };
     }

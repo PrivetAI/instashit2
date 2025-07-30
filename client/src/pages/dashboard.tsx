@@ -3,15 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import Sidebar from "@/components/Sidebar";
 import VideoCard from "@/components/VideoCard";
 import ConfirmationModal from "@/components/ConfirmationModal";
-import { useWebSocket } from "@/hooks/use-websocket";
-import { type Video, type ScrapingSession, type ChromeConnection } from "@shared/schema";
+import { useWebSocket } from "../hooks/use-websocket";
+import { type Video, type ScrapingSession, type AndroidConnection } from "@shared/schema";
 import { Play, Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 
 export default function Dashboard() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [activeSession, setActiveSession] = useState<ScrapingSession | null>(null);
-  const [chromeConnection, setChromeConnection] = useState<ChromeConnection | null>(null);
+  const [androidConnection, setAndroidConnection] = useState<AndroidConnection | null>(null);
   const [confirmationVideo, setConfirmationVideo] = useState<Video | null>(null);
 
   // Fetch initial data
@@ -24,37 +24,43 @@ export default function Dashboard() {
   });
 
   const { data: initialConnection } = useQuery({
-    queryKey: ["/api/chrome/status"],
+    queryKey: ["/api/android/status"],
   });
 
   // WebSocket for real-time updates
-  useWebSocket('/ws', {
-    onMessage: (event) => {
-      switch (event.type) {
+  const { lastMessage } = useWebSocket('/ws');
+
+  useEffect(() => {
+    if (lastMessage) {
+      switch (lastMessage.type) {
         case 'video_updated':
           setVideos(prev => {
-            const existing = prev.find(v => v.id === event.data.id);
+            const existing = prev.find(v => v.id === lastMessage.data.id);
             if (existing) {
-              return prev.map(v => v.id === event.data.id ? event.data : v);
+              return prev.map(v => v.id === lastMessage.data.id ? lastMessage.data : v);
             } else {
-              return [event.data, ...prev];
+              return [lastMessage.data, ...prev];
             }
           });
           break;
         case 'session_updated':
-          setActiveSession(event.data);
+          setActiveSession(lastMessage.data);
           break;
         case 'connection_status':
-          setChromeConnection(prev => prev ? {
-            ...prev,
-            status: event.data.status,
-            port: event.data.port,
-            errorMessage: event.data.error || null,
-          } : null);
+          setAndroidConnection(prev => ({
+            id: prev?.id || '1',
+            status: lastMessage.data.status,
+            host: lastMessage.data.host,
+            port: lastMessage.data.port,
+            errorMessage: lastMessage.data.error || null,
+            lastConnected: lastMessage.data.status === 'connected' ? new Date() : prev?.lastConnected || null,
+            createdAt: prev?.createdAt || new Date(),
+            updatedAt: new Date(),
+          }));
           break;
       }
-    },
-  });
+    }
+  }, [lastMessage]);
 
   // Initialize state from queries
   useEffect(() => {
@@ -66,7 +72,7 @@ export default function Dashboard() {
   }, [initialSession]);
 
   useEffect(() => {
-    if (initialConnection) setChromeConnection(initialConnection as ChromeConnection);
+    if (initialConnection) setAndroidConnection(initialConnection as AndroidConnection);
   }, [initialConnection]);
 
   const handleApprove = (video: Video) => {
@@ -126,7 +132,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen flex bg-gray-50">
       <Sidebar 
-        chromeConnection={chromeConnection}
+        androidConnection={androidConnection}
         activeSession={activeSession}
         onSessionUpdate={setActiveSession}
       />

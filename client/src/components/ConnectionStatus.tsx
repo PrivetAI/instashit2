@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
 import { type AndroidConnection } from "@shared/schema";
 import { RefreshCw, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";

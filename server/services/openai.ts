@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { log } from '../vite';
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ 
@@ -80,7 +81,7 @@ Please analyze this content and respond with JSON in this format:
       }
     };
   } catch (error) {
-    console.error("OpenAI analysis error:", error);
+    log(`OpenAI analysis error: ${error}`);
     throw new Error(`Failed to analyze reel: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -132,7 +133,7 @@ Generate a natural, authentic comment that feels human. Respond with JSON in thi
       confidence: Math.max(0, Math.min(1, result.confidence || 0.7))
     };
   } catch (error) {
-    console.error("OpenAI comment generation error:", error);
+    log(`OpenAI comment generation error: ${error}`);
     throw new Error(`Failed to generate comment: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }

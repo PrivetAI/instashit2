@@ -3,6 +3,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
+import { log } from '../vite';
 
 const execAsync = promisify(exec);
 
@@ -11,30 +12,42 @@ export class AndroidService {
   private isConnected = false;
 
   private readonly capabilities: RemoteOptions = {
-    hostname: process.env.APPIUM_HOST || 'localhost',
-    port: parseInt(process.env.APPIUM_PORT || '4723'),
+    hostname: process.env.ANDROID_HOST,
+    port: parseInt(process.env.ANDROID_PORT || '4723'),
+    path: '/wd/hub',
     capabilities: {
       platformName: 'Android',
-      'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'emulator-5554',
-      'appium:platformVersion': '11.0',
+      'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'Nexus 5',
       'appium:automationName': 'UiAutomator2',
-      'appium:appPackage': 'com.instagram.android',
-      'appium:appActivity': 'com.instagram.mainactivity.InstagramMainActivity',
+      'appium:appPackage': process.env.APP_PACKAGE || 'com.instagram.android',
+      'appium:appActivity': process.env.APP_ACTIVITY || 'com.instagram.android.activity.MainTabActivity',
       'appium:noReset': true,
       'appium:fullReset': false,
       'appium:newCommandTimeout': 300,
-    }
+      'appium:skipDeviceInitialization': true,
+    } as any
   };
 
   async connect(): Promise<void> {
-    try {
-      console.log('Connecting to Android emulator...');
-      this.driver = await remote(this.capabilities);
-      this.isConnected = true;
-      console.log('Connected to Android emulator');
-    } catch (error) {
-      console.error('Failed to connect to Android:', error);
-      throw error;
+    const retries = 10;
+    const delay = 15000; // 15 seconds
+
+    for (let i = 0; i < retries; i++) {
+      try {
+        log(`Connecting to Android emulator (attempt ${i + 1}/${retries})...`);
+        this.driver = await remote(this.capabilities);
+        this.isConnected = true;
+        log('Successfully connected to Android emulator');
+        return;
+      } catch (error) {
+        log(`Attempt ${i + 1} failed. Retrying in ${delay / 1000}s...`);
+        if (i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          log(`Failed to connect to Android after ${retries} attempts: ${error}`);
+          throw error;
+        }
+      }
     }
   }
 
@@ -58,10 +71,10 @@ export class AndroidService {
         `docker exec android_emulator adb install -r /apks/instagram.apk`
       );
       
-      console.log('Instagram installation:', stdout);
-      if (stderr) console.error('Installation warnings:', stderr);
+      log(`Instagram installation: ${stdout}`);
+      if (stderr) log(`Installation warnings: ${stderr}`);
     } catch (error) {
-      console.error('Failed to install Instagram:', error);
+      log(`Failed to install Instagram: ${error}`);
       throw error;
     }
   }
@@ -76,7 +89,7 @@ export class AndroidService {
       // Check if already logged in
       const profileTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Profile"]');
       if (await profileTab.isExisting()) {
-        console.log('Already logged in');
+        log('Already logged in');
         return true;
       }
 
@@ -105,7 +118,7 @@ export class AndroidService {
       const homeTab = await this.driver.$('//android.widget.FrameLayout[@content-desc="Home"]');
       return await homeTab.isExisting();
     } catch (error) {
-      console.error('Login failed:', error);
+      log(`Login failed: ${error}`);
       return false;
     }
   }
@@ -163,8 +176,25 @@ export class AndroidService {
 
       return data;
     } catch (error) {
-      console.error('Failed to get profile data:', error);
+      log(`Failed to get profile data: ${error}`);
       throw error;
+    }
+  }
+
+  async postComment(url: string, comment: string): Promise<boolean> {
+    if (!this.driver) throw new Error('Not connected to Android');
+    try {
+      await this.driver.url(url);
+      const commentButton = await this.driver.$('~Comment');
+      await commentButton.click();
+      const commentInput = await this.driver.$('//android.widget.EditText[@resource-id="com.instagram.android:id/comment_composer_edit_text"]');
+      await commentInput.setValue(comment);
+      const postButton = await this.driver.$('~Post');
+      await postButton.click();
+      return true;
+    } catch (error) {
+      log(`Failed to post comment: ${error}`);
+      return false;
     }
   }
 

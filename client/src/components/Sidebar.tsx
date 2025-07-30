@@ -1,21 +1,21 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import ConnectionStatus from "@/components/connection-status";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Textarea } from "./ui/textarea";
+import { Label } from "./ui/label";
+import ConnectionStatus from "./ConnectionStatus";
 import { type ScrapingSession, type AndroidConnection, type SystemPrompt } from "@shared/schema";
 import { Play, Pause, Save, Instagram } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface SidebarProps {
-  connection: AndroidConnection | null;
+  androidConnection: AndroidConnection | null;
   activeSession: ScrapingSession | null;
   onSessionUpdate: (session: ScrapingSession | null) => void;
 }
 
-export default function Sidebar({ connection, activeSession, onSessionUpdate }: SidebarProps) {
+export default function Sidebar({ androidConnection: connection, activeSession, onSessionUpdate }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("поиск работы");
   const [videoCount, setVideoCount] = useState(10);
   const [editingPrompts, setEditingPrompts] = useState(false);
@@ -132,7 +132,7 @@ export default function Sidebar({ connection, activeSession, onSessionUpdate }: 
             id="search"
             placeholder="поиск работы"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
             disabled={isScrapingActive}
             className="mt-1 h-9"
           />
@@ -146,7 +146,7 @@ export default function Sidebar({ connection, activeSession, onSessionUpdate }: 
             min="1"
             max="50"
             value={videoCount}
-            onChange={(e) => setVideoCount(parseInt(e.target.value) || 10)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVideoCount(parseInt(e.target.value) || 10)}
             disabled={isScrapingActive}
             className="mt-1 h-9"
           />

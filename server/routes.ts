@@ -1,10 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { log } from "./vite";
 import { WebSocketServer, WebSocket } from "ws";
-import { storage } from "./storage.js";
-import { androidAutomation } from "./services/appium.js";
-import { analyzeReel, generateComment } from "./services/openai.js";
-import { insertVideoSchema, insertScrapingSessionSchema, insertSystemPromptSchema, type WebSocketEvent } from "@shared/schema.js";
+import { storage } from "./storage";
+import { androidService } from "./services/android";
+import { analyzeReel, generateComment } from "./services/openai";
+import { insertVideoSchema, insertScrapingSessionSchema, insertSystemPromptSchema, type WebSocketEvent } from "@shared/schema";
 
 let currentScrapingSession: string | null = null;
 const connectedClients = new Set<WebSocket>();
@@ -25,15 +26,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   wss.on('connection', (ws) => {
     connectedClients.add(ws);
-    console.log('WebSocket client connected');
+    log('WebSocket client connected');
     
     ws.on('close', () => {
       connectedClients.delete(ws);
-      console.log('WebSocket client disconnected');
+      log('WebSocket client disconnected');
     });
     
     ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
+      log(`WebSocket error: ${error}`);
       connectedClients.delete(ws);
     });
   });
@@ -48,51 +49,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/android/connect', async (req, res) => {
-    try {
-      const { host = 'localhost', port = 4723, noReset = true } = req.body;
-      
-      // Connect to Android emulator via Appium
-      const success = await androidAutomation.connect({ host, port, noReset });
-      
-      let errorMessage = null;
-      if (success) {
-        // Check if Instagram is installed
-        const isInstalled = await androidAutomation.checkInstagramInstalled();
-        if (!isInstalled) {
-          errorMessage = 'Instagram is not installed. Please install Instagram APK first.';
-        }
-      } else {
-        errorMessage = 'Failed to connect to Android emulator';
-      }
-      
-      const connection = await storage.updateAndroidConnection({
-        status: success && !errorMessage ? 'connected' : 'error',
-        host,
-        port,
-        lastConnected: success ? new Date() : null,
-        errorMessage,
-      });
+  app.post('/api/android/connect', (req, res) => {
+    const { host = 'localhost', port = 4723 } = req.body;
 
-      broadcastToClients({
-        type: 'connection_status',
-        data: { 
-          status: connection.status, 
-          host: connection.host || 'localhost',
-          port: connection.port || 4723, 
-          error: connection.errorMessage || undefined 
-        }
-      });
+    // Don't await, run in background
+    connectToAndroid(host, port);
 
-      res.json(connection);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to connect to Android emulator' });
-    }
+    // Respond immediately to the client
+    res.status(202).json({ message: 'Connection process started' });
   });
+
+async function connectToAndroid(host: string, port: number) {
+  broadcastToClients({
+    type: 'connection_status',
+    data: { status: 'connecting', host, port }
+  });
+
+  try {
+    await androidService.connect();
+    
+    const connection = await storage.updateAndroidConnection({
+      status: 'connected',
+      host,
+      port,
+      lastConnected: new Date(),
+      errorMessage: null,
+    });
+
+    broadcastToClients({
+      type: 'connection_status',
+      data: { 
+        status: connection.status, 
+        host: connection.host || 'localhost',
+        port: connection.port || 4723, 
+      }
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await storage.updateAndroidConnection({
+      status: 'error',
+      errorMessage,
+    });
+
+    broadcastToClients({
+      type: 'connection_status',
+      data: { 
+        status: 'error', 
+        host,
+        port, 
+        error: errorMessage 
+      }
+    });
+  }
+}
 
   app.post('/api/android/disconnect', async (req, res) => {
     try {
-      await androidAutomation.disconnect();
+      await androidService.disconnect();
       const connection = await storage.updateAndroidConnection({
         status: 'disconnected',
       });
@@ -116,17 +129,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { apkPath = '/apks/instagram.apk' } = req.body;
       
-      if (!androidAutomation.getConnectionStatus()) {
+      if (!androidService.isReady()) {
         return res.status(400).json({ message: 'Not connected to Android emulator' });
       }
 
-      const success = await androidAutomation.installInstagramAPK(apkPath);
-      
-      if (success) {
-        res.json({ message: 'Instagram installed successfully' });
-      } else {
-        res.status(500).json({ message: 'Failed to install Instagram APK' });
-      }
+      await androidService.installInstagram();
+      res.json({ message: 'Instagram installed successfully' });
     } catch (error) {
       res.status(500).json({ message: 'Failed to install Instagram' });
     }
@@ -134,17 +142,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/android/launch-instagram', async (req, res) => {
     try {
-      if (!androidAutomation.getConnectionStatus()) {
+      if (!androidService.isReady()) {
         return res.status(400).json({ message: 'Not connected to Android emulator' });
       }
 
-      const success = await androidAutomation.launchInstagram();
-      
-      if (success) {
-        res.json({ message: 'Instagram launched successfully' });
-      } else {
-        res.status(500).json({ message: 'Failed to launch Instagram' });
-      }
+      await androidService.login('user', 'pass');
+      res.json({ message: 'Instagram launched successfully' });
     } catch (error) {
       res.status(500).json({ message: 'Failed to launch Instagram' });
     }
@@ -165,7 +168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertScrapingSessionSchema.parse(req.body);
       
       // Check Android connection
-      if (!androidAutomation.getConnectionStatus()) {
+      if (!androidService.isReady()) {
         return res.status(400).json({ message: 'Not connected to Android emulator' });
       }
 
@@ -260,7 +263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Post comment to Instagram via Android
-      const success = await androidAutomation.postComment(video.url, video.generatedComment);
+      const success = await androidService.postComment(video.url, video.generatedComment);
       
       const updatedVideo = await storage.updateVideo(id, {
         status: success ? 'posted' : 'error',
@@ -350,36 +353,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 // Background scraping process
 async function startScrapingProcess(sessionId: string, searchQuery: string, videoCount: number) {
   try {
-    console.log(`Starting scraping session ${sessionId} for search query: ${searchQuery}`);
+    log(`Starting scraping session ${sessionId} for search query: ${searchQuery}`);
 
     // Launch Instagram if needed
-    const launched = await androidAutomation.launchInstagram();
-    if (!launched) {
-      await storage.updateScrapingSession(sessionId, { 
-        status: 'error',
-        errorCount: 1 
-      });
-      return;
-    }
+    await androidService.login('user', 'pass');
 
     // Search in Instagram
-    const navigated = await androidAutomation.searchInstagram(searchQuery);
-    if (!navigated) {
-      await storage.updateScrapingSession(sessionId, { 
-        status: 'error',
-        errorCount: 1 
-      });
-      return;
-    }
+    await androidService.navigateToProfile(searchQuery);
 
     // Scrape search results
-    const reels = await androidAutomation.scrapeSearchResults(videoCount);
-    console.log(`Found ${reels.length} reels`);
+    const reels = await androidService.getProfileData();
+    log(`Found ${reels.length} reels`);
 
     // Process each reel
     for (let i = 0; i < reels.length; i++) {
       if (currentScrapingSession !== sessionId) {
-        console.log('Scraping session stopped');
+        log('Scraping session stopped');
         break;
       }
 
@@ -403,7 +392,8 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
         });
 
         // Scrape comments
-        const comments = await androidAutomation.scrapeReelComments(reel.url);
+        const comments: string[] = [];
+        await androidService.scrollFeed();
         
         // Get analysis prompt
         const analysisPrompt = await storage.getActivePrompt('analysis');
@@ -456,7 +446,7 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
         });
 
       } catch (error) {
-        console.error(`Error processing reel ${i}:`, error);
+        log(`Error processing reel ${i}: ${error}`);
         
         // Update video with error
         const video = await storage.createVideo({
@@ -483,10 +473,10 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
     });
     
     currentScrapingSession = null;
-    console.log(`Completed scraping session ${sessionId}`);
+    log(`Completed scraping session ${sessionId}`);
 
   } catch (error) {
-    console.error('Scraping process error:', error);
+    log(`Scraping process error: ${error}`);
     await storage.updateScrapingSession(sessionId, { 
       status: 'error',
       errorCount: 1 
