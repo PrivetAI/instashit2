@@ -14,7 +14,7 @@ export class AndroidService {
   private readonly capabilities: RemoteOptions = {
     hostname: process.env.ANDROID_HOST,
     port: parseInt(process.env.ANDROID_PORT || '4723'),
-    path: '/wd/hub',
+    path: '/',
     capabilities: {
       platformName: 'Android',
       'appium:deviceName': process.env.ANDROID_DEVICE_NAME || 'Nexus 5',
@@ -35,12 +35,16 @@ export class AndroidService {
     for (let i = 0; i < retries; i++) {
       try {
         log(`Connecting to Android emulator (attempt ${i + 1}/${retries})...`);
-        this.driver = await remote(this.capabilities);
+        this.driver = await remote({
+          ...this.capabilities,
+          logLevel: 'trace',
+        });
         this.isConnected = true;
         log('Successfully connected to Android emulator');
         return;
       } catch (error) {
         log(`Attempt ${i + 1} failed. Retrying in ${delay / 1000}s...`);
+        console.error(error);
         if (i < retries - 1) {
           await new Promise(resolve => setTimeout(resolve, delay));
         } else {

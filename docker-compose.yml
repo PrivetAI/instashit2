@@ -31,11 +31,16 @@ services:
     environment:
       - EMULATOR_DEVICE=Nexus 5
       - APPIUM=true
-      - WEB_VNC=true
+    command: sh -c "/scripts/install_apk.sh & /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
     volumes:
       - ./apks:/apks
       - ./scripts:/scripts
       - android_data:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "4723"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   app:
     build:
@@ -56,7 +61,7 @@ services:
       postgres:
         condition: service_healthy
       android:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./client:/app/client
       - ./server:/app/server
