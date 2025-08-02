@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   postgres:
     image: postgres:15
@@ -17,6 +19,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 512m
+    cpus: 1.0
 
   android:
     image: budtmo/docker-android:emulator_11.0
@@ -31,18 +35,25 @@ services:
       - "5554:5554"
       - "5555:5555"
     environment:
-      - EMULATOR_DEVICE=Nexus 5
+      - DEBUG=true
+      - EMULATOR_DEVICE=Nexus S 
       - WEB_VNC=true
       - APPIUM=true
       - DEVICE_NAME=emulator-5554
-      - DATAPARTITION=4g
-      - EMULATOR_ARGS=-no-snapshot-save -noaudio -no-boot-anim
-
-
+      - DATAPARTITION=1g
+      - EMULATOR_ARGS=-no-window -noaudio -no-boot-anim -accel on skin 480x800 -memory 4096 -cores 2 -qemu -enable-kvm
     volumes:
       - ./apks:/apks
       - android_data:/data
-      
+      - ./logs:/var/log/supervisor
+    healthcheck:
+      test: ["CMD-SHELL", "adb devices | grep emulator-5554 | grep device"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 4g
+    cpus: 4.0
+
   app:
     build:
       context: .
@@ -57,12 +68,12 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANDROID_HOST=android
       - ANDROID_PORT=4723
-      - ANDROID_DEVICE_NAME=Nexus 5
+      - ANDROID_DEVICE_NAME=Nexus S 
     depends_on:
       postgres:
         condition: service_healthy
       android:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./client:/app/client
       - ./server:/app/server
@@ -71,6 +82,8 @@ services:
       - /app/node_modules
     stdin_open: true
     tty: true
+    mem_limit: 2g
+    cpus: 1.0
 
 volumes:
   postgres_data_dev:
