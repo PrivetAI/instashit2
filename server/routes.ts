@@ -1,3 +1,4 @@
+// server/routes.ts
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { log } from "./vite";
@@ -50,58 +51,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post('/api/android/connect', (req, res) => {
-    const { host = 'localhost', port = 4723 } = req.body;
+    const { host = 'android', port = 4723 } = req.body;
 
-    // Don't await, run in background
+    // Run connection in background
     connectToAndroid(host, port);
 
-    // Respond immediately to the client
+    // Respond immediately
     res.status(202).json({ message: 'Connection process started' });
   });
 
-async function connectToAndroid(host: string, port: number) {
-  broadcastToClients({
-    type: 'connection_status',
-    data: { status: 'connecting', host, port }
-  });
-
-  try {
-    await androidService.connect();
-    
-    const connection = await storage.updateAndroidConnection({
-      status: 'connected',
-      host,
-      port,
-      lastConnected: new Date(),
-      errorMessage: null,
-    });
-
+  async function connectToAndroid(host: string, port: number) {
     broadcastToClients({
       type: 'connection_status',
-      data: { 
-        status: connection.status, 
-        host: connection.host || 'localhost',
-        port: connection.port || 4723, 
-      }
-    });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    await storage.updateAndroidConnection({
-      status: 'error',
-      errorMessage,
+      data: { status: 'connecting', host, port }
     });
 
-    broadcastToClients({
-      type: 'connection_status',
-      data: { 
-        status: 'error', 
+    try {
+      await androidService.connect();
+      
+      const connection = await storage.updateAndroidConnection({
+        status: 'connected',
         host,
-        port, 
-        error: errorMessage 
-      }
-    });
+        port,
+        lastConnected: new Date(),
+        errorMessage: null,
+      });
+
+      broadcastToClients({
+        type: 'connection_status',
+        data: { 
+          status: connection.status, 
+          host: connection.host || 'android',
+          port: connection.port || 4723, 
+        }
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      await storage.updateAndroidConnection({
+        status: 'error',
+        errorMessage,
+      });
+
+      broadcastToClients({
+        type: 'connection_status',
+        data: { 
+          status: 'error', 
+          host,
+          port, 
+          error: errorMessage 
+        }
+      });
+    }
   }
-}
 
   app.post('/api/android/disconnect', async (req, res) => {
     try {
@@ -114,42 +115,14 @@ async function connectToAndroid(host: string, port: number) {
         type: 'connection_status',
         data: { 
           status: connection.status, 
-          host: connection.host || 'localhost',
+          host: connection.host || 'android',
           port: connection.port || 4723 
         }
       });
 
       res.json(connection);
-    } catch (error) {
+    } catch (error) { 
       res.status(500).json({ message: 'Failed to disconnect from Android' });
-    }
-  });
-
-  app.post('/api/android/install-instagram', async (req, res) => {
-    try {
-      const { apkPath = '/apks/instagram.apk' } = req.body;
-      
-      if (!androidService.isReady()) {
-        return res.status(400).json({ message: 'Not connected to Android emulator' });
-      }
-
-      await androidService.installInstagram();
-      res.json({ message: 'Instagram installed successfully' });
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to install Instagram' });
-    }
-  });
-
-  app.post('/api/android/launch-instagram', async (req, res) => {
-    try {
-      if (!androidService.isReady()) {
-        return res.status(400).json({ message: 'Not connected to Android emulator' });
-      }
-
-      await androidService.login('user', 'pass');
-      res.json({ message: 'Instagram launched successfully' });
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to launch Instagram' });
     }
   });
 
@@ -220,7 +193,7 @@ async function connectToAndroid(host: string, port: number) {
     }
   });
 
-  // Health check endpoint для Docker
+  // Health check endpoint
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
@@ -262,13 +235,13 @@ async function connectToAndroid(host: string, port: number) {
         return res.status(404).json({ message: 'Video not found or no comment generated' });
       }
 
-      // Post comment to Instagram via Android
+      // Post comment to Instagram
       const success = await androidService.postComment(video.url, video.generatedComment);
       
       const updatedVideo = await storage.updateVideo(id, {
         status: success ? 'posted' : 'error',
         postedComment: success ? video.generatedComment : null,
-        errorMessage: success ? null : 'Failed to post comment',
+        errorMessage: success ? null : 'Failed to post comment or comments disabled',
       });
 
       if (updatedVideo) {
@@ -282,7 +255,7 @@ async function connectToAndroid(host: string, port: number) {
           const session = await storage.getScrapingSession(currentScrapingSession);
           if (session) {
             await storage.updateScrapingSession(currentScrapingSession, {
-              approvedCount: (session.approvedCount || 0) + 1,
+              approvedCount: (session.approvedCount || 0) + (success ? 1 : 0),
             });
           }
         }
@@ -350,25 +323,25 @@ async function connectToAndroid(host: string, port: number) {
   return httpServer;
 }
 
-// Background scraping process
+// Background scraping process for Instagram Reels
 async function startScrapingProcess(sessionId: string, searchQuery: string, videoCount: number) {
   try {
-    log(`Starting scraping session ${sessionId} for search query: ${searchQuery}`);
+    log(`Starting scraping session ${sessionId} for query: "${searchQuery}", target: ${videoCount} reels`);
 
-    // Launch Instagram if needed
-    await androidService.login('user', 'pass');
+    // Ensure Instagram is running
+    await androidService.ensureInstagramRunning(); // Just ensures app is open
 
-    // Search in Instagram
-    await androidService.navigateToProfile(searchQuery);
+    // Search for reels
+    await androidService.searchReels(searchQuery);
 
-    // Scrape search results
-    const reels = await androidService.getProfileData();
-    log(`Found ${reels.length} reels`);
+    // Scrape reels
+    const reels = await androidService.scrapeReels(videoCount);
+    log(`Found ${reels.length} reels to process`);
 
     // Process each reel
     for (let i = 0; i < reels.length; i++) {
       if (currentScrapingSession !== sessionId) {
-        log('Scraping session stopped');
+        log('Scraping session stopped by user');
         break;
       }
 
@@ -377,12 +350,12 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
       try {
         // Create video record
         const video = await storage.createVideo({
-          url: reel.url,
-          title: reel.title,
+          url: reel.id, // Using reel ID as identifier
+          title: reel.title || 'No title',
           thumbnail: reel.thumbnail,
-          likes: reel.likes,
-          comments: reel.comments,
-          shares: reel.shares,
+          likes: parseInt(reel.likes.replace(/[^0-9KMB.]/g, '')) || 0,
+          comments: parseInt(reel.comments.replace(/[^0-9KMB.]/g, '')) || 0,
+          shares: parseInt(reel.shares.replace(/[^0-9KMB.]/g, '')) || 0,
           status: 'analyzing',
         });
 
@@ -391,11 +364,11 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
           data: video
         });
 
-        // Scrape comments
-        const comments: string[] = [];
-        await androidService.scrollFeed();
-        
-        // Get analysis prompt
+        // Get comments for this reel
+        const comments = await androidService.getReelComments(reel.id, 50);
+        log(`Collected ${comments.length} comments for reel ${i + 1}`);
+
+        // Get prompts
         const analysisPrompt = await storage.getActivePrompt('analysis');
         const commentPrompt = await storage.getActivePrompt('comment');
 
@@ -407,9 +380,9 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
         const analysis = await analyzeReel({
           title: reel.title,
           comments,
-          likes: reel.likes,
-          commentCount: reel.comments,
-          shares: reel.shares,
+          likes: parseInt(reel.likes.replace(/[^0-9]/g, '')) || 0,
+          commentCount: parseInt(reel.comments.replace(/[^0-9]/g, '')) || 0,
+          shares: parseInt(reel.shares.replace(/[^0-9]/g, '')) || 0,
         }, analysisPrompt.prompt);
 
         // Generate comment
@@ -445,17 +418,19 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
           data: { processed: i + 1, total: reels.length, current: updatedVideo }
         });
 
+        // Move to next reel (already handled in scrapeReels)
+
       } catch (error) {
-        log(`Error processing reel ${i}: ${error}`);
+        log(`Error processing reel ${i + 1}: ${error}`);
         
-        // Update video with error
+        // Create video with error status
         const video = await storage.createVideo({
-          url: reel.url,
-          title: reel.title,
+          url: reel.id,
+          title: reel.title || 'No title',
           thumbnail: reel.thumbnail,
-          likes: reel.likes,
-          comments: reel.comments,
-          shares: reel.shares,
+          likes: parseInt(reel.likes.replace(/[^0-9KMB.]/g, '')) || 0,
+          comments: parseInt(reel.comments.replace(/[^0-9KMB.]/g, '')) || 0,
+          shares: parseInt(reel.shares.replace(/[^0-9KMB.]/g, '')) || 0,
           status: 'error',
           errorMessage: error instanceof Error ? error.message : 'Analysis failed',
         });
@@ -463,6 +438,11 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
         broadcastToClients({
           type: 'video_updated',
           data: video
+        });
+
+        // Update error count
+        await storage.updateScrapingSession(sessionId, {
+          errorCount: (await storage.getScrapingSession(sessionId))?.errorCount || 0 + 1,
         });
       }
     }
