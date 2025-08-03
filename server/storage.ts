@@ -1,4 +1,12 @@
+// server/storage.ts
+import { drizzle } from 'drizzle-orm/neon-http';
+import { neon } from '@neondatabase/serverless';
+import { eq, desc, and } from 'drizzle-orm';
 import { 
+  videos,
+  scrapingSessions,
+  systemPrompts,
+  androidConnection,
   type Video, 
   type InsertVideo, 
   type ScrapingSession, 
@@ -8,7 +16,9 @@ import {
   type AndroidConnection,
   type InsertAndroidConnection
 } from "@shared/schema";
-import { randomUUID } from "crypto";
+
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql);
 
 export interface IStorage {
   // Video operations
@@ -34,216 +44,161 @@ export interface IStorage {
   // Android connection operations
   getAndroidConnection(): Promise<AndroidConnection | undefined>;
   updateAndroidConnection(updates: Partial<AndroidConnection>): Promise<AndroidConnection>;
+  
+  // Initialize default data
+  initializeDefaults(): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private videos: Map<string, Video> = new Map();
-  private scrapingSessions: Map<string, ScrapingSession> = new Map();
-  private systemPrompts: Map<string, SystemPrompt> = new Map();
-  private androidConnection: AndroidConnection | undefined;
-
-  constructor() {
-    // Initialize default system prompts
-    this.initializeDefaults();
-  }
-
-  private initializeDefaults() {
-    const analysisPrompt: SystemPrompt = {
-      id: randomUUID(),
-      type: "analysis",
-      prompt: "Проанализируй этот Instagram reel на релевантность к теме поиска работы в России. Оцени: подходит ли контент для рекламы сервиса автоответов на вакансии, есть ли в комментариях люди ищущие работу, качество аудитории. Оцени релевантность от 1 до 10 и объясни причины.",
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    const commentPrompt: SystemPrompt = {
-      id: randomUUID(),
-      type: "comment",
-      prompt: "Создай естественный комментарий для рекламы сервиса автоматических ответов на вакансии в России. Комментарий должен быть релевантным к контенту, не выглядеть как спам, быть дружелюбным и заинтересовывающим. Используй эмодзи умеренно. Длина до 100 символов.",
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    this.systemPrompts.set(analysisPrompt.id, analysisPrompt);
-    this.systemPrompts.set(commentPrompt.id, commentPrompt);
-
-    // Initialize android connection
-    this.androidConnection = {
-      id: randomUUID(),
-      status: "disconnected",
-      host: "localhost",
-      port: 4723,
-      lastConnected: null,
-      errorMessage: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-  }
-
+export class PostgresStorage implements IStorage {
   // Video operations
   async getVideo(id: string): Promise<Video | undefined> {
-    return this.videos.get(id);
-  }
-
-  async getVideos(): Promise<Video[]> {
-    return Array.from(this.videos.values()).sort((a, b) => 
-      new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
-    );
-  }
-
-  async getVideosBySession(sessionId: string): Promise<Video[]> {
-    return Array.from(this.videos.values())
-      .filter(video => (video as any).sessionId === sessionId)
-      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
-  }
-
-  async createVideo(insertVideo: InsertVideo): Promise<Video> {
-    const id = randomUUID();
-    const now = new Date();
-    const video: Video = {
-      ...insertVideo,
-      id,
-      status: insertVideo.status || "queued",
-      thumbnail: insertVideo.thumbnail ?? null,
-      likes: insertVideo.likes ?? null,
-      comments: insertVideo.comments ?? null,
-      shares: insertVideo.shares ?? null,
-      relevanceScore: insertVideo.relevanceScore ?? null,
-      generatedComment: insertVideo.generatedComment ?? null,
-      postedComment: insertVideo.postedComment ?? null,
-      errorMessage: insertVideo.errorMessage ?? null,
-      extractedComments: insertVideo.extractedComments ?? null,
-      analysisData: insertVideo.analysisData ?? null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.videos.set(id, video);
+    const [video] = await db.select().from(videos).where(eq(videos.id, id));
     return video;
   }
 
-  async updateVideo(id: string, updates: Partial<Video>): Promise<Video | undefined> {
-    const video = this.videos.get(id);
-    if (!video) return undefined;
+  async getVideos(): Promise<Video[]> {
+    return await db.select().from(videos).orderBy(desc(videos.createdAt));
+  }
 
-    const updatedVideo: Video = {
-      ...video,
-      ...updates,
-      updatedAt: new Date(),
-    };
-    this.videos.set(id, updatedVideo);
-    return updatedVideo;
+  async getVideosBySession(sessionId: string): Promise<Video[]> {
+    return await db.select().from(videos)
+      .where(eq(videos.sessionId, sessionId))
+      .orderBy(desc(videos.createdAt));
+  }
+
+  async createVideo(video: InsertVideo): Promise<Video> {
+    const [created] = await db.insert(videos).values(video).returning();
+    return created;
+  }
+
+  async updateVideo(id: string, updates: Partial<Video>): Promise<Video | undefined> {
+    const [updated] = await db.update(videos)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(videos.id, id))
+      .returning();
+    return updated;
   }
 
   async deleteVideo(id: string): Promise<boolean> {
-    return this.videos.delete(id);
+    const result = await db.delete(videos).where(eq(videos.id, id));
+    return true;
   }
 
   // Scraping session operations
   async getScrapingSession(id: string): Promise<ScrapingSession | undefined> {
-    return this.scrapingSessions.get(id);
-  }
-
-  async getActiveScrapingSession(): Promise<ScrapingSession | undefined> {
-    return Array.from(this.scrapingSessions.values())
-      .find(session => session.status === "running");
-  }
-
-  async createScrapingSession(insertSession: InsertScrapingSession): Promise<ScrapingSession> {
-    const id = randomUUID();
-    const now = new Date();
-    const session: ScrapingSession = {
-      ...insertSession,
-      id,
-      status: insertSession.status || 'idle',
-      processedCount: insertSession.processedCount ?? null,
-      approvedCount: insertSession.approvedCount ?? null, 
-      rejectedCount: insertSession.rejectedCount ?? null,
-      errorCount: insertSession.errorCount ?? null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.scrapingSessions.set(id, session);
+    const [session] = await db.select().from(scrapingSessions).where(eq(scrapingSessions.id, id));
     return session;
   }
 
-  async updateScrapingSession(id: string, updates: Partial<ScrapingSession>): Promise<ScrapingSession | undefined> {
-    const session = this.scrapingSessions.get(id);
-    if (!session) return undefined;
+  async getActiveScrapingSession(): Promise<ScrapingSession | undefined> {
+    const [session] = await db.select().from(scrapingSessions)
+      .where(eq(scrapingSessions.status, 'running'))
+      .orderBy(desc(scrapingSessions.createdAt));
+    return session;
+  }
 
-    const updatedSession: ScrapingSession = {
-      ...session,
-      ...updates,
-      updatedAt: new Date(),
-    };
-    this.scrapingSessions.set(id, updatedSession);
-    return updatedSession;
+  async createScrapingSession(session: InsertScrapingSession): Promise<ScrapingSession> {
+    const [created] = await db.insert(scrapingSessions).values(session).returning();
+    return created;
+  }
+
+  async updateScrapingSession(id: string, updates: Partial<ScrapingSession>): Promise<ScrapingSession | undefined> {
+    const [updated] = await db.update(scrapingSessions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(scrapingSessions.id, id))
+      .returning();
+    return updated;
   }
 
   // System prompt operations
   async getSystemPrompts(): Promise<SystemPrompt[]> {
-    return Array.from(this.systemPrompts.values());
+    return await db.select().from(systemPrompts).orderBy(systemPrompts.type);
   }
 
   async getActivePrompt(type: string): Promise<SystemPrompt | undefined> {
-    return Array.from(this.systemPrompts.values())
-      .find(prompt => prompt.type === type && prompt.isActive);
-  }
-
-  async createSystemPrompt(insertPrompt: InsertSystemPrompt): Promise<SystemPrompt> {
-    const id = randomUUID();
-    const now = new Date();
-    const prompt: SystemPrompt = {
-      ...insertPrompt,
-      id,
-      isActive: insertPrompt.isActive ?? true,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.systemPrompts.set(id, prompt);
+    const [prompt] = await db.select().from(systemPrompts)
+      .where(and(eq(systemPrompts.type, type), eq(systemPrompts.isActive, true)));
     return prompt;
   }
 
-  async updateSystemPrompt(id: string, updates: Partial<SystemPrompt>): Promise<SystemPrompt | undefined> {
-    const prompt = this.systemPrompts.get(id);
-    if (!prompt) return undefined;
+  async createSystemPrompt(prompt: InsertSystemPrompt): Promise<SystemPrompt> {
+    const [created] = await db.insert(systemPrompts).values(prompt).returning();
+    return created;
+  }
 
-    const updatedPrompt: SystemPrompt = {
-      ...prompt,
-      ...updates,
-      updatedAt: new Date(),
-    };
-    this.systemPrompts.set(id, updatedPrompt);
-    return updatedPrompt;
+  async updateSystemPrompt(id: string, updates: Partial<SystemPrompt>): Promise<SystemPrompt | undefined> {
+    const [updated] = await db.update(systemPrompts)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(systemPrompts.id, id))
+      .returning();
+    return updated;
   }
 
   // Android connection operations
   async getAndroidConnection(): Promise<AndroidConnection | undefined> {
-    return this.androidConnection;
+    const [connection] = await db.select().from(androidConnection).orderBy(desc(androidConnection.updatedAt));
+    return connection;
   }
 
   async updateAndroidConnection(updates: Partial<AndroidConnection>): Promise<AndroidConnection> {
-    if (!this.androidConnection) {
-      this.androidConnection = {
-        id: randomUUID(),
-        status: "disconnected",
-        host: "localhost",
-        port: 4723,
-        lastConnected: null,
-        errorMessage: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
+    // Get existing or create new
+    let [existing] = await db.select().from(androidConnection);
+    
+    if (existing) {
+      const [updated] = await db.update(androidConnection)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(androidConnection.id, existing.id))
+        .returning();
+        //@ts-ignore
+      return updated;
+    } else {
+      const [created] = await db.insert(androidConnection)
+        .values({
+          status: 'disconnected',
+          host: 'localhost',
+          port: 4723,
+          ...updates
+        })
+        .returning();
+        //@ts-ignore
+      return created;
+    }
+  }
+
+  // Initialize default data
+  async initializeDefaults(): Promise<void> {
+    // Check if prompts exist
+    const existingPrompts = await this.getSystemPrompts();
+    
+    if (existingPrompts.length === 0) {
+      // Create default analysis prompt
+      await this.createSystemPrompt({
+        type: "analysis",
+        prompt: "Проанализируй этот Instagram reel на релевантность к теме поиска работы в России. Оцени: подходит ли контент для рекламы сервиса автоответов на вакансии, есть ли в комментариях люди ищущие работу, качество аудитории. Оцени релевантность от 1 до 10 и объясни причины.",
+        isActive: true,
+      });
+
+      // Create default comment prompt
+      await this.createSystemPrompt({
+        type: "comment",
+        prompt: "Создай естественный комментарий для рекламы сервиса автоматических ответов на вакансии в России. Комментарий должен быть релевантным к контенту, не выглядеть как спам, быть дружелюбным и заинтересовывающим. Используй эмодзи умеренно. Длина до 100 символов.",
+        isActive: true,
+      });
     }
 
-    this.androidConnection = {
-      ...this.androidConnection,
-      ...updates,
-      updatedAt: new Date(),
-    };
-    return this.androidConnection;
+    // Initialize android connection if not exists
+    const existingConnection = await this.getAndroidConnection();
+    if (!existingConnection) {
+      await this.updateAndroidConnection({
+        status: 'disconnected',
+        host: 'localhost',
+        port: 4723,
+      });
+    }
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new PostgresStorage();
+
+// Initialize defaults on startup
+storage.initializeDefaults().catch(console.error);

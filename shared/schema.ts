@@ -5,6 +5,7 @@ import { z } from "zod";
 
 export const videos = pgTable("videos", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id"),
   url: text("url").notNull(),
   title: text("title").notNull(),
   thumbnail: text("thumbnail"),
@@ -103,4 +104,3 @@ export type WebSocketEvent =
   | { type: 'connection_status'; data: { status: string; host?: string; port: number; error?: string } }
   | { type: 'scraping_progress'; data: { processed: number; total: number; current?: Video } }
   | { type: 'error'; data: { message: string; details?: any } };
-  

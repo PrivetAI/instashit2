@@ -350,6 +350,7 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
       try {
         // Create video record
         const video = await storage.createVideo({
+          sessionId: sessionId, // Add this line
           url: reel.id, // Using reel ID as identifier
           title: reel.title || 'No title',
           thumbnail: reel.thumbnail,
