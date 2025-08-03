@@ -1,6 +1,6 @@
 // server/storage.ts
-import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from '@neondatabase/serverless';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pg from 'pg';
 import { eq, desc, and } from 'drizzle-orm';
 import { 
   videos,
@@ -17,8 +17,14 @@ import {
   type InsertAndroidConnection
 } from "@shared/schema";
 
-const sql = neon(process.env.DATABASE_URL!);
-const db = drizzle(sql);
+const { Pool } = pg;
+
+// Create PostgreSQL connection pool
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/instagram_scraper'
+});
+
+const db = drizzle(pool);
 
 export interface IStorage {
   // Video operations
