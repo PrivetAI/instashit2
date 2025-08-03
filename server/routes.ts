@@ -21,19 +21,19 @@ function broadcastToClients(event: WebSocketEvent) {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
-  
+
   // WebSocket setup
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
-  
+
   wss.on('connection', (ws) => {
     connectedClients.add(ws);
     log('WebSocket client connected');
-    
+
     ws.on('close', () => {
       connectedClients.delete(ws);
       log('WebSocket client disconnected');
     });
-    
+
     ws.on('error', (error) => {
       log(`WebSocket error: ${error}`);
       connectedClients.delete(ws);
@@ -68,7 +68,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       await androidService.connect();
-      
+
       const connection = await storage.updateAndroidConnection({
         status: 'connected',
         host,
@@ -79,10 +79,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       broadcastToClients({
         type: 'connection_status',
-        data: { 
-          status: connection.status, 
+        data: {
+          status: connection.status,
           host: connection.host || 'android',
-          port: connection.port || 4723, 
+          port: connection.port || 4723,
         }
       });
     } catch (error) {
@@ -94,11 +94,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       broadcastToClients({
         type: 'connection_status',
-        data: { 
-          status: 'error', 
+        data: {
+          status: 'error',
           host,
-          port, 
-          error: errorMessage 
+          port,
+          error: errorMessage
         }
       });
     }
@@ -113,15 +113,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       broadcastToClients({
         type: 'connection_status',
-        data: { 
-          status: connection.status, 
+        data: {
+          status: connection.status,
           host: connection.host || 'android',
-          port: connection.port || 4723 
+          port: connection.port || 4723
         }
       });
 
       res.json(connection);
-    } catch (error) { 
+    } catch (error) {
       res.status(500).json({ message: 'Failed to disconnect from Android' });
     }
   });
@@ -139,7 +139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/sessions/start', async (req, res) => {
     try {
       const validatedData = insertScrapingSessionSchema.parse(req.body);
-      
+
       // Check Android connection
       if (!androidService.isReady()) {
         return res.status(400).json({ message: 'Not connected to Android emulator' });
@@ -175,7 +175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const session = await storage.updateScrapingSession(id, { status: 'completed' });
-      
+
       if (currentScrapingSession === id) {
         currentScrapingSession = null;
       }
@@ -212,7 +212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const video = await storage.updateVideo(id, req.body);
-      
+
       if (video) {
         broadcastToClients({
           type: 'video_updated',
@@ -230,14 +230,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const video = await storage.getVideo(id);
-      
+
       if (!video || !video.generatedComment) {
         return res.status(404).json({ message: 'Video not found or no comment generated' });
       }
 
       // Post comment to Instagram
       const success = await androidService.postComment(video.url, video.generatedComment);
-      
+
       const updatedVideo = await storage.updateVideo(id, {
         status: success ? 'posted' : 'error',
         postedComment: success ? video.generatedComment : null,
@@ -271,7 +271,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const { reason } = req.body;
-      
+
       const updatedVideo = await storage.updateVideo(id, {
         status: 'rejected',
         errorMessage: reason || 'Rejected by user',
@@ -319,9 +319,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: 'Failed to update prompt' });
     }
   });
+  // Snapshot management routes
+  app.post('/api/android/snapshot/create', async (req, res) => {
+    try {
+      if (!androidService.isReady()) {
+        return res.status(400).json({ message: 'Android not connected' });
+      }
+
+      // Execute snapshot creation in container
+      const { exec } = require('child_process');
+      const command = `docker exec android_emulator sh -c "tar -czf /snapshots/emulator.tar.gz /root/.android/avd /data/data/com.instagram.android"`;
+      //@ts-ignore
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`Snapshot error: ${error}`);
+          return res.status(500).json({ message: 'Failed to create snapshot', error: stderr });
+        }
+
+        log('Snapshot created successfully');
+        res.json({ message: 'Snapshot created successfully', path: './snapshots/emulator.tar.gz' });
+      });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to create snapshot' });
+    }
+  });
+
+  app.get('/api/android/snapshot/status', async (req, res) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const snapshotPath = path.join(process.cwd(), 'snapshots', 'emulator.tar.gz');
+
+      if (fs.existsSync(snapshotPath)) {
+        const stats = fs.statSync(snapshotPath);
+        res.json({
+          exists: true,
+          size: `${(stats.size / 1024 / 1024).toFixed(2)} MB`,
+          created: stats.mtime,
+        });
+      } else {
+        res.json({ exists: false });
+      }
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to check snapshot status' });
+    }
+  });
+
+  app.delete('/api/android/snapshot', async (req, res) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const snapshotPath = path.join(process.cwd(), 'snapshots', 'emulator.tar.gz');
+
+      if (fs.existsSync(snapshotPath)) {
+        fs.unlinkSync(snapshotPath);
+        res.json({ message: 'Snapshot deleted successfully' });
+      } else {
+        res.status(404).json({ message: 'No snapshot found' });
+      }
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to delete snapshot' });
+    }
+  });
 
   return httpServer;
 }
+
 
 // Background scraping process for Instagram Reels
 async function startScrapingProcess(sessionId: string, searchQuery: string, videoCount: number) {
@@ -346,7 +409,7 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
       }
 
       const reel = reels[i];
-      
+
       try {
         // Create video record
         const video = await storage.createVideo({
@@ -423,7 +486,7 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
 
       } catch (error) {
         log(`Error processing reel ${i + 1}: ${error}`);
-        
+
         // Create video with error status
         const video = await storage.createVideo({
           url: reel.id,
@@ -449,18 +512,18 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
     }
 
     // Complete session
-    await storage.updateScrapingSession(sessionId, { 
-      status: 'completed' 
+    await storage.updateScrapingSession(sessionId, {
+      status: 'completed'
     });
-    
+
     currentScrapingSession = null;
     log(`Completed scraping session ${sessionId}`);
 
   } catch (error) {
     log(`Scraping process error: ${error}`);
-    await storage.updateScrapingSession(sessionId, { 
+    await storage.updateScrapingSession(sessionId, {
       status: 'error',
-      errorCount: 1 
+      errorCount: 1
     });
     currentScrapingSession = null;
 

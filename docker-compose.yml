@@ -46,6 +46,14 @@ services:
       - ./apks:/apks
       - android_data:/data
       - ./logs:/var/log/supervisor
+      - ./snapshots:/snapshots
+      - ./scripts/restore-snapshot.sh:/restore-snapshot.sh:ro
+    command: >
+      sh -c "if [ -f /snapshots/emulator.tar.gz ]; then
+        echo 'Restoring snapshot...';
+        /restore-snapshot.sh;
+      fi;
+      /entrypoint.sh"
     healthcheck:
       test: ["CMD-SHELL", "adb devices | grep emulator-5554 | grep device"]
       interval: 10s

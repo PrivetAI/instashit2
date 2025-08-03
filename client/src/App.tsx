@@ -34,12 +34,14 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("поиск работы");
   const [videoCount, setVideoCount] = useState(10);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  // new functionality const [snapshot, setSnapshot] = useState<any>(null);
+
 
   // Initialize WebSocket
   useEffect(() => {
     const socket = new WebSocket('/ws');
     
-    socket.onmessage = (event) => {
+    socket.onmessage = (event) => { 
       const data = JSON.parse(event.data);
       
       switch (data.type) {
