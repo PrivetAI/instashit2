@@ -8,7 +8,7 @@ The tool is designed to help businesses and marketers:
 - Find relevant Instagram Reels based on search queries
 - Analyze content and comments for relevance using AI
 - Generate and post contextual comments automatically
-- Track engagement metrics and campaign performance
+
 
 ## 🚀 Key Features
 
@@ -32,7 +32,7 @@ The tool is designed to help businesses and marketers:
 
 The application consists of three main Docker services:
 
-1. **`postgres`**: Database for storing sessions, videos, and prompts
+1. **`postgres`**: Database for storing sessions, videos, prompts and **`UPD TO ADD IN APP`** generated comments
 2. **`android`**: Android emulator with Appium for Instagram automation
 3. **`app`**: Main Node.js application orchestrating the workflow
 
@@ -49,7 +49,7 @@ The application consists of three main Docker services:
 3. **Analyze Content**: AI analyzes each reel's content and comments for relevance
 4. **Generate Comments**: AI creates contextual, natural comments
 5. **Review & Approve**: Manual review before posting comments
-6. **Track Results**: Monitor success rates and engagement metrics
+6. **Track Results**: Monitor analyzed videos and sended comments
 
 ## 🎮 Usage Flow
 
