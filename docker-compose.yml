@@ -1,5 +1,3 @@
-# version: '3.8'
-
 services:
   postgres:
     image: postgres:15
@@ -25,7 +23,6 @@ services:
   android:
     image: budtmo/docker-android:emulator_11.0
     container_name: android_emulator
-    # restart: unless-stopped
     devices:
       - /dev/kvm
     ports:
@@ -39,26 +36,33 @@ services:
       - WEB_VNC=true
       - APPIUM=true
       - DEVICE_NAME=emulator-5554
-      - DATAPARTITION=1g
-      - EMULATOR_ARGS=-no-window -noaudio -no-boot-anim -accel on -skin 480x800 -memory 4096 -cores 3
-      - CLEAN_START=false 
+      - DATAPARTITION=4g  # Увеличиваем раздел данных для приложений
+      - EMULATOR_ARGS=-no-window -noaudio -no-boot-anim -accel on -skin 480x800 -memory 4096 -cores 3 -writable-system
     volumes:
       - ./apks:/apks
-      - android_data:/data
-      - ./snapshots:/snapshots
-      # Монтируем скрипты
-      - ./scripts:/scripts:ro
+      # КРИТИЧНО: Монтируем директорию с данными как bind mount
+      - ./android_userdata:/home/androidusr/.android
+      - ./android_emulator:/home/androidusr/emulator
+      - ./scripts/init-emulator.sh:/init-emulator.sh:ro
+      - ./android_emulator:/home/androidusr/emulator
 
-    entrypoint: ["/bin/bash", "/scripts/entrypoint-wrapper.sh"]
-    command: []
     privileged: true
-    user: "0:0"
-    stop_grace_period: 30s  # Даем время на сохранение снапшота
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      # Восстанавливаем права если нужно
+      chown -R androidusr:androidusr /home/androidusr/.android 2>/dev/null || true
+      chown -R androidusr:androidusr /home/androidusr/emulator 2>/dev/null || true
+      
+      # Запускаем оригинальный entrypoint
+      exec /home/androidusr/docker-android/mixins/scripts/run.sh
+      "
     healthcheck:
       test: ["CMD-SHELL", "adb devices | grep emulator-5554 | grep device"]
       interval: 10s
       timeout: 5s
       retries: 30
+      start_period: 60s
     mem_limit: 4g
     cpus: 3.0
 
@@ -94,7 +98,6 @@ services:
 
 volumes:
   postgres_data_dev:
-  android_data:
 
 networks:
   default:

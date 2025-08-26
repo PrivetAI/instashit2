@@ -6,3 +6,6 @@ vite.config.ts.*
 *.tar.gz
 .env
 apks/
+
+android_userdata/
+android_emulator/
