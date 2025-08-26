@@ -1,4 +1,4 @@
-version: '3.8'
+# version: '3.8'
 
 services:
   postgres:
@@ -25,8 +25,7 @@ services:
   android:
     image: budtmo/docker-android:emulator_11.0
     container_name: android_emulator
-    privileged: true
-    restart: unless-stopped
+    # restart: unless-stopped
     devices:
       - /dev/kvm
     ports:
@@ -36,24 +35,25 @@ services:
       - "5555:5555"
     environment:
       - DEBUG=true
-      - EMULATOR_DEVICE=Nexus S 
+      - EMULATOR_DEVICE=Nexus S
       - WEB_VNC=true
       - APPIUM=true
       - DEVICE_NAME=emulator-5554
       - DATAPARTITION=1g
-      - EMULATOR_ARGS=-no-window -noaudio -no-boot-anim -accel on skin 480x800 -memory 4096 -cores 3 -qemu -enable-kvm
+      - EMULATOR_ARGS=-no-window -noaudio -no-boot-anim -accel on -skin 480x800 -memory 4096 -cores 3
+      - CLEAN_START=false 
     volumes:
       - ./apks:/apks
       - android_data:/data
-      - ./logs:/var/log/supervisor
       - ./snapshots:/snapshots
-      - ./scripts/restore-snapshot.sh:/restore-snapshot.sh:ro
-    command: >
-      sh -c "if [ -f /snapshots/emulator.tar.gz ]; then
-        echo 'Restoring snapshot...';
-        /restore-snapshot.sh;
-      fi;
-      /entrypoint.sh"
+      # Монтируем скрипты
+      - ./scripts:/scripts:ro
+
+    entrypoint: ["/bin/bash", "/scripts/entrypoint-wrapper.sh"]
+    command: []
+    privileged: true
+    user: "0:0"
+    stop_grace_period: 30s  # Даем время на сохранение снапшота
     healthcheck:
       test: ["CMD-SHELL", "adb devices | grep emulator-5554 | grep device"]
       interval: 10s
@@ -76,7 +76,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANDROID_HOST=android
       - ANDROID_PORT=4723
-      - ANDROID_DEVICE_NAME=Nexus S 
+      - ANDROID_DEVICE_NAME=Nexus S
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,8 +86,7 @@ services:
       - ./client:/app/client
       - ./server:/app/server
       - ./shared:/app/shared
-      - ./uploads:/app/uploads
-      - /app/node_modules 
+      - /app/node_modules
     stdin_open: true
     tty: true
     mem_limit: 2g
@@ -99,4 +98,4 @@ volumes:
 
 networks:
   default:
-    name: instagram_scraper_dev_network 
+    name: instagram_scraper_dev_network
