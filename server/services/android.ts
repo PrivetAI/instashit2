@@ -44,7 +44,6 @@ class AndroidService {
       
       await this.ensureInstagramRunning();
     } catch (error) {
-      this.connected =false
       throw new Error(`Failed to connect: ${error}`);
     }
   }
