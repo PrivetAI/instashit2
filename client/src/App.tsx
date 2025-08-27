@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { type Video, type ScrapingSession, type AndroidConnection, type SystemPrompt } from "@shared/schema";
 import { apiService } from "./apiService";
 
-// Simple styles
 const styles = `
   body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; }
   .container { display: flex; height: 100vh; }
@@ -15,7 +14,7 @@ const styles = `
   .btn-primary { background: #007bff; color: white; border-color: #007bff; }
   .btn-danger { background: #dc3545; color: white; border-color: #dc3545; }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .input, .textarea { width: 100%; padding: 8px; border: 1px solid #ddd; margin-bottom: 10px; }
+  .input, .textarea { width: 100%; padding: 8px; border: 1px solid #ddd; margin-bottom: 10px; box-sizing: border-box; }
   .textarea { min-height: 80px; resize: vertical; }
   .status { padding: 4px 8px; border-radius: 3px; font-size: 12px; }
   .status-connected { background: #28a745; color: white; }
@@ -36,21 +35,15 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("поиск работы");
   const [videoCount, setVideoCount] = useState(10);
 
-  // Initialize WebSocket
   useEffect(() => {
     const ws = apiService.initWebSocket({
       onVideoUpdated: (video) => {
         setVideos(prev => {
           const exists = prev.find(v => v.id === video.id);
-          if (exists) {
-            return prev.map(v => v.id === video.id ? video : v);
-          }
-          return [video, ...prev];
+          return exists ? prev.map(v => v.id === video.id ? video : v) : [video, ...prev];
         });
       },
-      onSessionUpdated: (sessionData) => {
-        setSession(sessionData);
-      },
+      onSessionUpdated: setSession,
       onConnectionStatus: (status) => {
         setConnection(prev => ({
           id: prev?.id || '1',
@@ -68,106 +61,67 @@ export default function App() {
     return () => apiService.closeWebSocket();
   }, []);
 
-  // Load initial data
   useEffect(() => {
     const loadData = async () => {
-      try {
-        const [videosData, sessionData, connectionData, promptsData] = await Promise.all([
-          apiService.getVideos(),
-          apiService.getSessions(),
-          apiService.getAndroidStatus(),
-          apiService.getPrompts()
-        ]);
-        
-        setVideos(videosData);
-        setSession(sessionData);
-        setConnection(connectionData);
-        setPrompts(promptsData);
-        
-        // Initialize prompt values
-        const initialPromptValues = promptsData.reduce((acc, prompt) => {
-          acc[prompt.id] = prompt.prompt;
+      const [videosData, sessionData, connectionData, promptsData] = await Promise.allSettled([
+        apiService.getVideos(),
+        apiService.getSessions(),
+        apiService.getAndroidStatus(),
+        apiService.getPrompts()
+      ]);
+
+      if (videosData.status === 'fulfilled') setVideos(videosData.value || []);
+      if (sessionData.status === 'fulfilled') setSession(sessionData.value);
+      if (connectionData.status === 'fulfilled') setConnection(connectionData.value);
+      if (promptsData.status === 'fulfilled') {
+        const prompts = promptsData.value || [];
+        setPrompts(prompts);
+        setPromptValues(prompts.reduce((acc, prompt) => {
+          acc[prompt.id] = prompt.prompt || '';
           return acc;
-        }, {} as Record<string, string>);
-        setPromptValues(initialPromptValues);
-      } catch (error) {
-        console.error('Failed to load initial data:', error);
+        }, {} as Record<string, string>));
       }
     };
-    
     loadData();
   }, []);
 
-  const connect = async () => {
-    try {
-      await apiService.connectAndroid();
-    } catch (error) {
-      alert('Failed to connect');
-    }
-  };
+  const connect = () => apiService.connectAndroid().catch(() => alert('Failed to connect'));
 
   const startScraping = async () => {
-    if (connection?.status !== 'connected') {
-      alert('Connect to Android first');
-      return;
-    }
-    
+    if (connection?.status !== 'connected') return alert('Connect to Android first');
     try {
-      const sessionData = await apiService.startScraping(searchQuery, videoCount);
-      setSession(sessionData);
-    } catch (error) {
-      alert('Failed to start scraping');
+      setSession(await apiService.startScraping(searchQuery, videoCount));
+    } catch { alert('Failed to start scraping'); }
+  };
+
+  const stopScraping = () => session && apiService.stopScraping(session.id).catch(() => alert('Failed to stop scraping'));
+
+  const approveVideo = (video: Video) => {
+    if (confirm(`Post comment: "${video.generatedComment}"?`)) {
+      apiService.approveVideo(video.id).catch(() => alert('Failed to approve video'));
     }
   };
 
-  const stopScraping = async () => {
-    if (!session) return;
-    
-    try {
-      await apiService.stopScraping(session.id);
-      setSession(null);
-    } catch (error) {
-      alert('Failed to stop scraping');
-    }
-  };
-
-  const approveVideo = async (video: Video) => {
-    if (!confirm(`Post comment: "${video.generatedComment}"?`)) return;
-    
-    try {
-      await apiService.approveVideo(video.id);
-    } catch (error) {
-      alert('Failed to approve video');
-    }
-  };
-
-  const rejectVideo = async (video: Video) => {
-    try {
-      await apiService.rejectVideo(video.id);
-    } catch (error) {
-      alert('Failed to reject video');
-    }
-  };
+  const rejectVideo = (video: Video) => apiService.rejectVideo(video.id).catch(() => alert('Failed to reject video'));
 
   const updatePrompt = async (id: string) => {
     const prompt = promptValues[id];
-    if (!prompt) return;
+    if (!prompt?.trim()) return alert('Prompt cannot be empty');
     
     try {
       await apiService.updatePrompt(id, prompt);
-      alert('Prompt saved');
+      alert('Prompt saved successfully');
       const updatedPrompts = await apiService.getPrompts();
-      setPrompts(updatedPrompts);
-    } catch (error) {
-      alert('Failed to save prompt');
-    }
+      setPrompts(updatedPrompts || []);
+      setPromptValues((updatedPrompts || []).reduce((acc, p) => {
+        acc[p.id] = p.prompt || '';
+        return acc;
+      }, {} as Record<string, string>));
+    } catch { alert('Failed to save prompt'); }
   };
 
   const handlePromptChange = (id: string, value: string) => {
-    setPromptValues(prev => ({
-      ...prev,
-      [id]: value
-    }));
+    setPromptValues(prev => ({ ...prev, [id]: value }));
   };
 
   return (
@@ -224,30 +178,30 @@ export default function App() {
           </div>
 
           <div className="mb-20">
-            <div className="label">Prompts</div>
-            {prompts.length > 0 ? (
-              prompts.map(prompt => (
-                <div key={prompt.id} className="mb-10">
-                  <div style={{ fontSize: '12px', marginBottom: '5px' }}>
-                    {prompt.type}:
-                  </div>
-                  <textarea
-                    className="textarea"
-                    value={promptValues[prompt.id] || ''}
-                    onChange={e => handlePromptChange(prompt.id, e.target.value)}
-                  />
-                  <button 
-                    className="btn btn-primary" 
-                    onClick={() => updatePrompt(prompt.id)}
-                    style={{ marginTop: '5px' }}
-                  >
-                    Save
-                  </button>
+            <div className="label">System Prompts</div>
+            {prompts.length > 0 ? prompts.map(prompt => (
+              <div key={prompt.id} className="mb-10">
+                <div style={{ fontSize: '12px', marginBottom: '5px', textTransform: 'capitalize' }}>
+                  {prompt.type} Prompt:
                 </div>
-              ))
-            ) : (
+                <textarea
+                  className="textarea"
+                  value={promptValues[prompt.id] || ''}
+                  onChange={e => handlePromptChange(prompt.id, e.target.value)}
+                  placeholder={`Enter ${prompt.type} prompt...`}
+                />
+                <button 
+                  className="btn btn-primary" 
+                  onClick={() => updatePrompt(prompt.id)}
+                  style={{ marginTop: '5px' }}
+                  disabled={!promptValues[prompt.id]?.trim()}
+                >
+                  Save {prompt.type}
+                </button>
+              </div>
+            )) : (
               <div style={{ fontSize: '12px', color: '#666', padding: '10px 0' }}>
-                Loading prompts...
+                No prompts found.
               </div>
             )}
           </div>
@@ -266,16 +220,14 @@ export default function App() {
           </div>
 
           <div className="grid">
-            {videos.map(video => (
+            {videos.length > 0 ? videos.map(video => (
               <div key={video.id} className="card">
                 <div><strong>{video.title || 'No title'}</strong></div>
                 <div style={{ fontSize: '12px', color: '#666', margin: '10px 0' }}>
                   ❤️ {video.likes} | 💬 {video.comments} | 📤 {video.shares}
                 </div>
                 
-                {video.relevanceScore && (
-                  <div>Score: {video.relevanceScore}/10</div>
-                )}
+                {video.relevanceScore && <div>Score: {video.relevanceScore}/10</div>}
                 
                 {video.status === 'pending' && video.generatedComment && (
                   <div style={{ background: '#f0f0f0', padding: '10px', margin: '10px 0' }}>
@@ -283,26 +235,21 @@ export default function App() {
                   </div>
                 )}
                 
-                {video.status === 'posted' && (
-                  <div style={{ color: 'green' }}>✓ Posted</div>
-                )}
-                
-                {video.status === 'error' && (
-                  <div style={{ color: 'red' }}>Error: {video.errorMessage}</div>
-                )}
+                {video.status === 'posted' && <div style={{ color: 'green' }}>✓ Posted</div>}
+                {video.status === 'error' && <div style={{ color: 'red' }}>Error: {video.errorMessage}</div>}
                 
                 {video.status === 'pending' && (
                   <div style={{ marginTop: '10px' }}>
-                    <button className="btn btn-primary" onClick={() => approveVideo(video)}>
-                      Approve
-                    </button>
-                    <button className="btn btn-danger" onClick={() => rejectVideo(video)}>
-                      Reject
-                    </button>
+                    <button className="btn btn-primary" onClick={() => approveVideo(video)}>Approve</button>
+                    <button className="btn btn-danger" onClick={() => rejectVideo(video)}>Reject</button>
                   </div>
                 )}
               </div>
-            ))}
+            )) : (
+              <div style={{ fontSize: '14px', color: '#666', padding: '20px 0' }}>
+                No videos found. Start scraping to see results.
+              </div>
+            )}
           </div>
         </div>
       </div>
