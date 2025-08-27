@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { type Video, type ScrapingSession, type AndroidConnection, type SystemPrompt } from "@shared/schema";
+import { apiService } from "./apiService";
 
 // Simple styles
 const styles = `
@@ -31,62 +32,75 @@ export default function App() {
   const [session, setSession] = useState<ScrapingSession | null>(null);
   const [connection, setConnection] = useState<AndroidConnection | null>(null);
   const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
+  const [promptValues, setPromptValues] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("поиск работы");
   const [videoCount, setVideoCount] = useState(10);
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  // new functionality const [snapshot, setSnapshot] = useState<any>(null);
-
 
   // Initialize WebSocket
   useEffect(() => {
-    const socket = new WebSocket('/ws');
-    
-    socket.onmessage = (event) => { 
-      const data = JSON.parse(event.data);
-      
-      switch (data.type) {
-        case 'video_updated':
-          setVideos(prev => {
-            const exists = prev.find(v => v.id === data.data.id);
-            if (exists) {
-              return prev.map(v => v.id === data.data.id ? data.data : v);
-            }
-            return [data.data, ...prev];
-          });
-          break;
-        case 'session_updated':
-          setSession(data.data);
-          break;
-        case 'connection_status':
-          setConnection(prev => ({
-            id: prev?.id || '1',
-            status: data.data.status,
-            host: data.data.host,
-            port: data.data.port,
-            errorMessage: data.data.error || null,
-            lastConnected: null,
-            createdAt: prev?.createdAt || new Date(),
-            updatedAt: new Date(),
-          }));
-          break;
+    const ws = apiService.initWebSocket({
+      onVideoUpdated: (video) => {
+        setVideos(prev => {
+          const exists = prev.find(v => v.id === video.id);
+          if (exists) {
+            return prev.map(v => v.id === video.id ? video : v);
+          }
+          return [video, ...prev];
+        });
+      },
+      onSessionUpdated: (sessionData) => {
+        setSession(sessionData);
+      },
+      onConnectionStatus: (status) => {
+        setConnection(prev => ({
+          id: prev?.id || '1',
+          status: status.status,
+          host: status.host,
+          port: status.port,
+          errorMessage: status.error || null,
+          lastConnected: null,
+          createdAt: prev?.createdAt || new Date(),
+          updatedAt: new Date(),
+        }));
       }
-    };
+    });
     
-    setWs(socket);
-    return () => socket.close();
+    return () => apiService.closeWebSocket();
   }, []);
 
   // Load initial data
   useEffect(() => {
-    fetch('/api/videos').then(r => r.json()).then(setVideos);
-    fetch('/api/sessions').then(r => r.json()).then(setSession);
-    fetch('/api/android/status').then(r => r.json()).then(setConnection);
-    fetch('/api/prompts').then(r => r.json()).then(setPrompts);
+    const loadData = async () => {
+      try {
+        const [videosData, sessionData, connectionData, promptsData] = await Promise.all([
+          apiService.getVideos(),
+          apiService.getSessions(),
+          apiService.getAndroidStatus(),
+          apiService.getPrompts()
+        ]);
+        
+        setVideos(videosData);
+        setSession(sessionData);
+        setConnection(connectionData);
+        setPrompts(promptsData);
+        
+        // Initialize prompt values
+        const initialPromptValues = promptsData.reduce((acc, prompt) => {
+          acc[prompt.id] = prompt.prompt;
+          return acc;
+        }, {} as Record<string, string>);
+        setPromptValues(initialPromptValues);
+      } catch (error) {
+        console.error('Failed to load initial data:', error);
+      }
+    };
+    
+    loadData();
   }, []);
 
   const connect = async () => {
     try {
-      await fetch('/api/android/connect', { method: 'POST' });
+      await apiService.connectAndroid();
     } catch (error) {
       alert('Failed to connect');
     }
@@ -99,13 +113,8 @@ export default function App() {
     }
     
     try {
-      const res = await fetch('/api/sessions/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ searchQuery, videoCount }),
-      });
-      const data = await res.json();
-      setSession(data);
+      const sessionData = await apiService.startScraping(searchQuery, videoCount);
+      setSession(sessionData);
     } catch (error) {
       alert('Failed to start scraping');
     }
@@ -115,10 +124,10 @@ export default function App() {
     if (!session) return;
     
     try {
-      await fetch(`/api/sessions/${session.id}/stop`, { method: 'POST' });
+      await apiService.stopScraping(session.id);
       setSession(null);
     } catch (error) {
-      alert('Failed to stop');
+      alert('Failed to stop scraping');
     }
   };
 
@@ -126,36 +135,39 @@ export default function App() {
     if (!confirm(`Post comment: "${video.generatedComment}"?`)) return;
     
     try {
-      await fetch(`/api/videos/${video.id}/approve`, { method: 'POST' });
+      await apiService.approveVideo(video.id);
     } catch (error) {
-      alert('Failed to approve');
+      alert('Failed to approve video');
     }
   };
 
   const rejectVideo = async (video: Video) => {
     try {
-      await fetch(`/api/videos/${video.id}/reject`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Rejected by user' }),
-      });
+      await apiService.rejectVideo(video.id);
     } catch (error) {
-      alert('Failed to reject');
+      alert('Failed to reject video');
     }
   };
 
-  const updatePrompt = async (id: string, prompt: string) => {
+  const updatePrompt = async (id: string) => {
+    const prompt = promptValues[id];
+    if (!prompt) return;
+    
     try {
-      await fetch(`/api/prompts/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
+      await apiService.updatePrompt(id, prompt);
       alert('Prompt saved');
-      fetch('/api/prompts').then(r => r.json()).then(setPrompts);
+      const updatedPrompts = await apiService.getPrompts();
+      setPrompts(updatedPrompts);
     } catch (error) {
       alert('Failed to save prompt');
     }
+  };
+
+  const handlePromptChange = (id: string, value: string) => {
+    setPromptValues(prev => ({
+      ...prev,
+      [id]: value
+    }));
   };
 
   return (
@@ -211,20 +223,33 @@ export default function App() {
             </button>
           </div>
 
-          <div>
+          <div className="mb-20">
             <div className="label">Prompts</div>
-            {prompts.map(prompt => (
-              <div key={prompt.id} className="mb-10">
-                <div style={{ fontSize: '12px', marginBottom: '5px' }}>
-                  {prompt.type}:
+            {prompts.length > 0 ? (
+              prompts.map(prompt => (
+                <div key={prompt.id} className="mb-10">
+                  <div style={{ fontSize: '12px', marginBottom: '5px' }}>
+                    {prompt.type}:
+                  </div>
+                  <textarea
+                    className="textarea"
+                    value={promptValues[prompt.id] || ''}
+                    onChange={e => handlePromptChange(prompt.id, e.target.value)}
+                  />
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => updatePrompt(prompt.id)}
+                    style={{ marginTop: '5px' }}
+                  >
+                    Save
+                  </button>
                 </div>
-                <textarea
-                  className="textarea"
-                  defaultValue={prompt.prompt}
-                  onBlur={e => updatePrompt(prompt.id, e.target.value)}
-                />
+              ))
+            ) : (
+              <div style={{ fontSize: '12px', color: '#666', padding: '10px 0' }}>
+                Loading prompts...
               </div>
-            ))}
+            )}
           </div>
         </div>
 
