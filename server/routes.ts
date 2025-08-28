@@ -50,14 +50,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/android/connect', (req, res) => {
+  app.post('/api/android/connect', async (req, res) => {
     const { host = 'android', port = 4723 } = req.body;
 
-    // Run connection in background
-    connectToAndroid(host, port);
-
-    // Respond immediately
-    res.status(202).json({ message: 'Connection process started' });
+    try {
+      // Wait for actual connection
+      const connection = await connectToAndroid(host, port);
+      res.json(connection);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to connect';
+      res.status(500).json({ message: errorMessage });
+    }
   });
 
   async function connectToAndroid(host: string, port: number) {

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { type Video, type ScrapingSession, type AndroidConnection, type SystemPrompt } from "@shared/schema";
 import { apiService } from "./apiService";
 
+// Simple styles
 const styles = `
   body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; }
   .container { display: flex; height: 100vh; }
@@ -34,16 +35,23 @@ export default function App() {
   const [promptValues, setPromptValues] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("поиск работы");
   const [videoCount, setVideoCount] = useState(10);
+  const [promptsLoading, setPromptsLoading] = useState(true);
 
+  // Initialize WebSocket
   useEffect(() => {
     const ws = apiService.initWebSocket({
       onVideoUpdated: (video) => {
         setVideos(prev => {
           const exists = prev.find(v => v.id === video.id);
-          return exists ? prev.map(v => v.id === video.id ? video : v) : [video, ...prev];
+          if (exists) {
+            return prev.map(v => v.id === video.id ? video : v);
+          }
+          return [video, ...prev];
         });
       },
-      onSessionUpdated: setSession,
+      onSessionUpdated: (sessionData) => {
+        setSession(sessionData);
+      },
       onConnectionStatus: (status) => {
         setConnection(prev => ({
           id: prev?.id || '1',
@@ -61,67 +69,148 @@ export default function App() {
     return () => apiService.closeWebSocket();
   }, []);
 
+  // Load initial data
   useEffect(() => {
     const loadData = async () => {
-      const [videosData, sessionData, connectionData, promptsData] = await Promise.allSettled([
-        apiService.getVideos(),
-        apiService.getSessions(),
-        apiService.getAndroidStatus(),
-        apiService.getPrompts()
-      ]);
+      setPromptsLoading(true);
+      console.log('Loading data...');
+      
+      // Load each piece of data separately to avoid one failure breaking everything
+      try {
+        const videosData = await apiService.getVideos();
+        setVideos(videosData || []);
+        console.log('Videos loaded:', videosData?.length || 0);
+      } catch (error) {
+        console.error('Failed to load videos:', error);
+      }
 
-      if (videosData.status === 'fulfilled') setVideos(videosData.value || []);
-      if (sessionData.status === 'fulfilled') setSession(sessionData.value);
-      if (connectionData.status === 'fulfilled') setConnection(connectionData.value);
-      if (promptsData.status === 'fulfilled') {
-        const prompts = promptsData.value || [];
-        setPrompts(prompts);
-        setPromptValues(prompts.reduce((acc, prompt) => {
-          acc[prompt.id] = prompt.prompt || '';
-          return acc;
-        }, {} as Record<string, string>));
+      try {
+        const sessionData = await apiService.getSessions();
+        setSession(sessionData);
+        console.log('Session loaded:', sessionData ? 'yes' : 'no');
+      } catch (error) {
+        console.error('Failed to load session:', error);
+      }
+
+      try {
+        const connectionData = await apiService.getAndroidStatus();
+        setConnection(connectionData);
+        console.log('Connection loaded:', connectionData?.status || 'none');
+      } catch (error) {
+        console.error('Failed to load connection:', error);
+      }
+
+      try {
+        const promptsData = await apiService.getPrompts();
+        console.log('Prompts data received:', promptsData);
+        console.log('Prompts length:', promptsData?.length);
+        
+        setPrompts(promptsData || []);
+        
+        // Initialize prompt values with actual data
+        if (promptsData && promptsData.length > 0) {
+          const initialPromptValues = promptsData.reduce((acc, prompt) => {
+            acc[prompt.id] = prompt.prompt || '';
+            return acc;
+          }, {} as Record<string, string>);
+          console.log('Initial prompt values:', initialPromptValues);
+          setPromptValues(initialPromptValues);
+        }
+      } catch (error) {
+        console.error('Failed to load prompts:', error);
+      } finally {
+        setPromptsLoading(false);
       }
     };
+    
     loadData();
   }, []);
 
-  const connect = () => apiService.connectAndroid().catch(() => alert('Failed to connect'));
-
-  const startScraping = async () => {
-    if (connection?.status !== 'connected') return alert('Connect to Android first');
+  const connect = async () => {
     try {
-      setSession(await apiService.startScraping(searchQuery, videoCount));
-    } catch { alert('Failed to start scraping'); }
-  };
-
-  const stopScraping = () => session && apiService.stopScraping(session.id).catch(() => alert('Failed to stop scraping'));
-
-  const approveVideo = (video: Video) => {
-    if (confirm(`Post comment: "${video.generatedComment}"?`)) {
-      apiService.approveVideo(video.id).catch(() => alert('Failed to approve video'));
+      await apiService.connectAndroid();
+    } catch (error) {
+      alert('Failed to connect');
     }
   };
 
-  const rejectVideo = (video: Video) => apiService.rejectVideo(video.id).catch(() => alert('Failed to reject video'));
+  const startScraping = async () => {
+    if (connection?.status !== 'connected') {
+      alert('Connect to Android first');
+      return;
+    }
+    
+    try {
+      const sessionData = await apiService.startScraping(searchQuery, videoCount);
+      setSession(sessionData);
+    } catch (error) {
+      alert('Failed to start scraping');
+    }
+  };
+
+  const stopScraping = async () => {
+    if (!session) return;
+    
+    try {
+      await apiService.stopScraping(session.id);
+      setSession(null);
+    } catch (error) {
+      alert('Failed to stop scraping');
+    }
+  };
+
+  const approveVideo = async (video: Video) => {
+    if (!confirm(`Post comment: "${video.generatedComment}"?`)) return;
+    
+    try {
+      await apiService.approveVideo(video.id);
+    } catch (error) {
+      alert('Failed to approve video');
+    }
+  };
+
+  const rejectVideo = async (video: Video) => {
+    try {
+      await apiService.rejectVideo(video.id);
+    } catch (error) {
+      alert('Failed to reject video');
+    }
+  };
 
   const updatePrompt = async (id: string) => {
     const prompt = promptValues[id];
-    if (!prompt?.trim()) return alert('Prompt cannot be empty');
+    if (!prompt?.trim()) {
+      alert('Prompt cannot be empty');
+      return;
+    }
     
     try {
       await apiService.updatePrompt(id, prompt);
       alert('Prompt saved successfully');
+      
+      // Refresh prompts data
       const updatedPrompts = await apiService.getPrompts();
       setPrompts(updatedPrompts || []);
-      setPromptValues((updatedPrompts || []).reduce((acc, p) => {
-        acc[p.id] = p.prompt || '';
-        return acc;
-      }, {} as Record<string, string>));
-    } catch { alert('Failed to save prompt'); }
+      
+      // Update prompt values with fresh data
+      if (updatedPrompts && updatedPrompts.length > 0) {
+        const freshPromptValues = updatedPrompts.reduce((acc, p) => {
+          acc[p.id] = p.prompt || '';
+          return acc;
+        }, {} as Record<string, string>);
+        setPromptValues(freshPromptValues);
+      }
+    } catch (error) {
+      console.error('Failed to save prompt:', error);
+      alert('Failed to save prompt');
+    }
   };
 
   const handlePromptChange = (id: string, value: string) => {
-    setPromptValues(prev => ({ ...prev, [id]: value }));
+    setPromptValues(prev => ({
+      ...prev,
+      [id]: value
+    }));
   };
 
   return (
@@ -179,29 +268,43 @@ export default function App() {
 
           <div className="mb-20">
             <div className="label">System Prompts</div>
-            {prompts.length > 0 ? prompts.map(prompt => (
-              <div key={prompt.id} className="mb-10">
-                <div style={{ fontSize: '12px', marginBottom: '5px', textTransform: 'capitalize' }}>
-                  {prompt.type} Prompt:
-                </div>
-                <textarea
-                  className="textarea"
-                  value={promptValues[prompt.id] || ''}
-                  onChange={e => handlePromptChange(prompt.id, e.target.value)}
-                  placeholder={`Enter ${prompt.type} prompt...`}
-                />
-                <button 
-                  className="btn btn-primary" 
-                  onClick={() => updatePrompt(prompt.id)}
-                  style={{ marginTop: '5px' }}
-                  disabled={!promptValues[prompt.id]?.trim()}
-                >
-                  Save {prompt.type}
-                </button>
-              </div>
-            )) : (
+            <div style={{ fontSize: '10px', color: '#999', marginBottom: '10px' }}>
+              Debug: Loading={promptsLoading.toString()}, Count={prompts.length}
+            </div>
+            {promptsLoading ? (
               <div style={{ fontSize: '12px', color: '#666', padding: '10px 0' }}>
-                No prompts found.
+                Loading prompts...
+              </div>
+            ) : prompts.length > 0 ? (
+              <>
+                <div style={{ fontSize: '10px', color: '#999', marginBottom: '10px' }}>
+                  Found {prompts.length} prompts
+                </div>
+                {prompts.map(prompt => (
+                  <div key={prompt.id} className="mb-10">
+                    <div style={{ fontSize: '12px', marginBottom: '5px', textTransform: 'capitalize' }}>
+                      {prompt.type} Prompt: (ID: {prompt.id.substring(0, 8)}...)
+                    </div>
+                    <textarea
+                      className="textarea"
+                      value={promptValues[prompt.id] || ''}
+                      onChange={e => handlePromptChange(prompt.id, e.target.value)}
+                      placeholder={`Enter ${prompt.type} prompt...`}
+                    />
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={() => updatePrompt(prompt.id)}
+                      style={{ marginTop: '5px' }}
+                      disabled={!promptValues[prompt.id]?.trim()}
+                    >
+                      Save {prompt.type}
+                    </button>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div style={{ fontSize: '12px', color: '#666', padding: '10px 0' }}>
+                No prompts found. Please check server configuration.
               </div>
             )}
           </div>
@@ -227,7 +330,9 @@ export default function App() {
                   ❤️ {video.likes} | 💬 {video.comments} | 📤 {video.shares}
                 </div>
                 
-                {video.relevanceScore && <div>Score: {video.relevanceScore}/10</div>}
+                {video.relevanceScore && (
+                  <div>Score: {video.relevanceScore}/10</div>
+                )}
                 
                 {video.status === 'pending' && video.generatedComment && (
                   <div style={{ background: '#f0f0f0', padding: '10px', margin: '10px 0' }}>
@@ -235,13 +340,22 @@ export default function App() {
                   </div>
                 )}
                 
-                {video.status === 'posted' && <div style={{ color: 'green' }}>✓ Posted</div>}
-                {video.status === 'error' && <div style={{ color: 'red' }}>Error: {video.errorMessage}</div>}
+                {video.status === 'posted' && (
+                  <div style={{ color: 'green' }}>✓ Posted</div>
+                )}
+                
+                {video.status === 'error' && (
+                  <div style={{ color: 'red' }}>Error: {video.errorMessage}</div>
+                )}
                 
                 {video.status === 'pending' && (
                   <div style={{ marginTop: '10px' }}>
-                    <button className="btn btn-primary" onClick={() => approveVideo(video)}>Approve</button>
-                    <button className="btn btn-danger" onClick={() => rejectVideo(video)}>Reject</button>
+                    <button className="btn btn-primary" onClick={() => approveVideo(video)}>
+                      Approve
+                    </button>
+                    <button className="btn btn-danger" onClick={() => rejectVideo(video)}>
+                      Reject
+                    </button>
                   </div>
                 )}
               </div>

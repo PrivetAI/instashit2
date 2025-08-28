@@ -62,7 +62,7 @@ Please analyze this content and respond with JSON in this format:
         },
         {
           role: "user",
-          content: prompt
+          content: prompt                               
         }
       ],
       response_format: { type: "json_object" },
@@ -93,7 +93,7 @@ export async function generateComment(
     topics: string[];
   },
   commentPrompt: string
-): Promise<CommentResult> {
+): Promise<CommentResult> { 
   try {
     const prompt = `${commentPrompt}
 
