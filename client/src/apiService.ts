@@ -64,7 +64,7 @@ class ApiService {
     const response = await fetch('/api/android/connect', { method: 'POST' });
     if (!response.ok) throw new Error('Failed to connect');
   }
-
+  
   async startScraping(searchQuery: string, videoCount: number): Promise<ScrapingSession> {
     const response = await fetch('/api/sessions/start', {
       method: 'POST',

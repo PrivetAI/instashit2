@@ -37,7 +37,7 @@ services:
       - APPIUM=true
       - DEVICE_NAME=emulator-5554
       - DATAPARTITION=4g  # Увеличиваем раздел данных для приложений
-      - EMULATOR_ARGS=-no-window -noaudio -no-boot-anim -accel on -skin 480x800 -memory 4096 -cores 3 -writable-system
+      - EMULATOR_ARGS=-no-window -noaudio -no-boot-anim -accel on -skin 480x800 -memory 4096 -cores 2 -writable-system
     volumes:
       - ./apks:/apks
       - ./android_userdata:/home/androidusr/.android

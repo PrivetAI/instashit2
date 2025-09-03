@@ -22,6 +22,13 @@ function broadcastToClients(event: WebSocketEvent) {
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
+  // Reset connection status on server startup
+  await storage.updateAndroidConnection({
+    status: 'disconnected',
+    errorMessage: 'Server restarted'
+  });
+  log('Reset Android connection status on startup');
+
   // WebSocket setup
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
@@ -44,7 +51,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/android/status', async (req, res) => {
     try {
       const connection = await storage.getAndroidConnection();
-      res.json(connection);
+      
+      // Verify actual service connection state
+      if (connection?.status === 'connected' && !androidService.isReady()) {
+        // Storage says connected but service isn't - fix the inconsistency
+        const updatedConnection = await storage.updateAndroidConnection({
+          status: 'disconnected',
+          errorMessage: 'Connection lost'
+        });
+        res.json(updatedConnection);
+      } else {
+        res.json(connection);
+      }
     } catch (error) {
       res.status(500).json({ message: 'Failed to get connection status' });
     }
@@ -54,6 +72,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { host = 'android', port = 4723 } = req.body;
 
     try {
+      // Check if already connected
+      if (androidService.isReady()) {
+        const connection = await storage.getAndroidConnection();
+        return res.json(connection);
+      }
+
       // Wait for actual connection
       const connection = await connectToAndroid(host, port);
       res.json(connection);
@@ -70,6 +94,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     try {
+      // Set environment variables for the service
+      process.env.ANDROID_HOST = host;
+      process.env.ANDROID_PORT = String(port);
+      
       await androidService.connect();
 
       const connection = await storage.updateAndroidConnection({
@@ -88,10 +116,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           port: connection.port || 4723,
         }
       });
+      
+      return connection;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      await storage.updateAndroidConnection({
+      const connection = await storage.updateAndroidConnection({
         status: 'error',
+        host,
+        port,
         errorMessage,
       });
 
@@ -104,6 +136,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           error: errorMessage
         }
       });
+      
+      throw error;
     }
   }
 
@@ -112,6 +146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await androidService.disconnect();
       const connection = await storage.updateAndroidConnection({
         status: 'disconnected',
+        errorMessage: null
       });
 
       broadcastToClients({
@@ -143,8 +178,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertScrapingSessionSchema.parse(req.body);
 
-      // Check Android connection
+      // Check both service state AND storage state
       if (!androidService.isReady()) {
+        // Ensure storage is also in sync
+        await storage.updateAndroidConnection({
+          status: 'disconnected',
+          errorMessage: 'Not connected to emulator'
+        });
         return res.status(400).json({ message: 'Not connected to Android emulator' });
       }
 
@@ -198,7 +238,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      androidConnected: androidService.isReady()
+    });
   });
 
   // Video routes
@@ -236,6 +280,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!video || !video.generatedComment) {
         return res.status(404).json({ message: 'Video not found or no comment generated' });
+      }
+
+      // Check Android connection before posting
+      if (!androidService.isReady()) {
+        return res.status(400).json({ message: 'Android not connected' });
       }
 
       // Post comment to Instagram
@@ -322,6 +371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: 'Failed to update prompt' });
     }
   });
+
   // Snapshot management routes
   app.post('/api/android/snapshot/create', async (req, res) => {
     try {
@@ -332,8 +382,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Execute snapshot creation in container
       const { exec } = require('child_process');
       const command = `docker exec android_emulator sh -c "tar -czf /snapshots/emulator.tar.gz /root/.android/avd /data/data/com.instagram.android"`;
-      //@ts-ignore
-      exec(command, (error, stdout, stderr) => {
+      
+      exec(command, (error: any, stdout: string, stderr: string) => {
         if (error) {
           console.error(`Snapshot error: ${error}`);
           return res.status(500).json({ message: 'Failed to create snapshot', error: stderr });
@@ -388,14 +438,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   return httpServer;
 }
 
-
 // Background scraping process for Instagram Reels
 async function startScrapingProcess(sessionId: string, searchQuery: string, videoCount: number) {
   try {
     log(`Starting scraping session ${sessionId} for query: "${searchQuery}", target: ${videoCount} reels`);
 
+    // Verify connection before starting
+    if (!androidService.isReady()) {
+      throw new Error('Android connection lost');
+    }
+
     // Ensure Instagram is running
-    await androidService.ensureInstagramRunning(); // Just ensures app is open
+    await androidService.ensureInstagramRunning();
 
     // Search for reels
     await androidService.searchReels(searchQuery);
@@ -416,8 +470,8 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
       try {
         // Create video record
         const video = await storage.createVideo({
-          sessionId: sessionId, // Add this line
-          url: reel.id, // Using reel ID as identifier
+          sessionId: sessionId,
+          url: reel.id,
           title: reel.title || 'No title',
           thumbnail: reel.thumbnail,
           likes: parseInt(reel.likes.replace(/[^0-9KMB.]/g, '')) || 0,
@@ -485,13 +539,12 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
           data: { processed: i + 1, total: reels.length, current: updatedVideo }
         });
 
-        // Move to next reel (already handled in scrapeReels)
-
       } catch (error) {
         log(`Error processing reel ${i + 1}: ${error}`);
 
         // Create video with error status
         const video = await storage.createVideo({
+          sessionId: sessionId,
           url: reel.id,
           title: reel.title || 'No title',
           thumbnail: reel.thumbnail,
@@ -508,8 +561,9 @@ async function startScrapingProcess(sessionId: string, searchQuery: string, vide
         });
 
         // Update error count
+        const session = await storage.getScrapingSession(sessionId);
         await storage.updateScrapingSession(sessionId, {
-          errorCount: (await storage.getScrapingSession(sessionId))?.errorCount || 0 + 1,
+          errorCount: (session?.errorCount || 0) + 1,
         });
       }
     }

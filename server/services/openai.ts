@@ -33,8 +33,11 @@ export async function analyzeReel(
   analysisPrompt: string
 ): Promise<AnalysisResult> {
   try {
-    const prompt = `${analysisPrompt}
-
+    // Use the prompt from database directly
+    const systemMessage = analysisPrompt;
+    
+    // Prepare reel data for analysis
+    const reelContext = `
 Reel Data:
 - Title: ${reelData.title}
 - Likes: ${reelData.likes}
@@ -58,11 +61,11 @@ Please analyze this content and respond with JSON in this format:
       messages: [
         {
           role: "system",
-          content: "You are an expert social media analyst. Analyze content for engagement potential and relevance."
+          content: systemMessage
         },
         {
           role: "user",
-          content: prompt                               
+          content: reelContext                               
         }
       ],
       response_format: { type: "json_object" },
@@ -95,8 +98,11 @@ export async function generateComment(
   commentPrompt: string
 ): Promise<CommentResult> { 
   try {
-    const prompt = `${commentPrompt}
-
+    // Use the prompt from database directly
+    const systemMessage = commentPrompt;
+    
+    // Prepare reel context for comment generation
+    const reelContext = `
 Reel Data:
 - Title: ${reelData.title}
 - Topics: ${reelData.topics.join(", ")}
@@ -114,11 +120,11 @@ Generate a natural, authentic comment that feels human. Respond with JSON in thi
       messages: [
         {
           role: "system",
-          content: "You are a creative social media user who writes engaging, authentic comments. Be natural and conversational."
+          content: systemMessage
         },
         {
           role: "user",
-          content: prompt
+          content: reelContext
         }
       ],
       response_format: { type: "json_object" },
